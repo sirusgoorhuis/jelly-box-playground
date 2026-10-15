@@ -176,6 +176,38 @@ button{font:inherit;color:inherit;cursor:pointer}
 .primary:hover{filter:brightness(1.06)}
 .primary:active{transform:translateY(1px) scale(.98)}
 
+body[data-scene="light"] .brand,body[data-scene="light"] .empty{color:#15171c;text-shadow:0 1px 14px rgba(255,255,255,.55)}
+body[data-scene="light"] .brand p,body[data-scene="light"] .empty p{color:#2f3540}
+body[data-scene="dark"] .brand,body[data-scene="dark"] .empty{color:#eef0f4;text-shadow:0 1px 14px rgba(0,0,0,.55)}
+body[data-scene="dark"] .brand p,body[data-scene="dark"] .empty p{color:#c9ced8}
+.scene-pop{
+  position:fixed;top:68px;right:14px;width:min(340px, calc(100% - 20px));
+  max-height:calc(100dvh - 84px);overflow:auto;overscroll-behavior:contain;
+  border-radius:var(--r-panel);padding:12px;display:grid;gap:10px;
+}
+.scene-pop[hidden]{display:none}
+@media (prefers-reduced-motion: no-preference){ .scene-pop{animation:pop-in .2s cubic-bezier(.16,1,.3,1)} }
+.scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scene-card{
+  display:grid;gap:6px;padding:6px;border-radius:var(--r-ctl);border:1px solid var(--line);
+  background:var(--field);color:var(--ink);text-align:left;font-size:13px;font-weight:600;
+  transition:transform .15s cubic-bezier(.16,1,.3,1), border-color .2s;
+}
+.scene-card:active{transform:scale(.98)}
+.scene-card[aria-checked="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.scene-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.scene-card .thumb{display:block;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--line)}
+.scene-card img{display:block;width:100%;height:100%;object-fit:cover}
+.scene-card .room-thumb{
+  background-color:#e6eaf0;
+  background-image:linear-gradient(#cfd5de 1px,transparent 1px),linear-gradient(90deg,#cfd5de 1px,transparent 1px);
+  background-size:14px 14px;
+}
+.scene-card .meta{display:flex;justify-content:space-between;gap:6px;padding:0 2px 2px}
+.scene-card .state{color:var(--ink-2);font-weight:500;font-variant-numeric:tabular-nums}
+.credit{margin:0;font-size:12px;color:var(--ink-2)}
+.credit a{color:inherit}
+
 @media (max-width:640px){
   .brand p{display:none}
   .tools .btn span{display:none}
@@ -198,6 +230,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 </header>
 
 <div class="tools glass" role="toolbar" aria-label="Playground tools">
+  <button class="btn" id="sceneBtn" aria-haspopup="dialog" aria-expanded="false" aria-controls="scenePop" title="Change the environment"><i class="ph ph-mountains"></i><span>Scene</span></button>
   <button class="btn" id="gravity" aria-pressed="true" title="Toggle gravity"><i class="ph ph-arrow-fat-lines-down"></i><span>Gravity</span></button>
   <button class="btn" id="shake" title="Shake everything"><i class="ph ph-vibrate"></i><span>Shake</span></button>
   <button class="btn" id="clearAll" title="Pop all jellies"><i class="ph ph-trash"></i><span>Clear</span></button>
@@ -286,6 +319,12 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 <button class="launcher glass" id="launcher" hidden aria-label="Open editor" title="Open editor"><i class="ph ph-pencil-simple-line"></i></button>
 
+<div class="scene-pop glass" id="scenePop" role="dialog" aria-label="Environment" hidden>
+  <div class="scene-grid" role="radiogroup" aria-label="Environment" id="sceneGrid"></div>
+  <p class="err" id="err-scene" role="alert"></p>
+  <p class="credit">HDRIs by <a href="https://polyhaven.com/hdris" target="_blank" rel="noopener">Poly Haven</a>, CC0.</p>
+</div>
+
 <noscript><p style="position:fixed;inset:auto 0 50% 0;text-align:center">Jelly Box needs JavaScript to wobble.</p></noscript>
 <script type="importmap">
 { "imports": {
@@ -307,6 +346,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 (() => {
 'use strict';
@@ -332,7 +372,9 @@ const SUB = 6;                 // physics substeps per 60Hz frame
 const DT = 1 / 60;
 const SDT = DT / SUB;
 const GRAV = 2300;             // px/s^2
-const MAXV = 16;               // max displacement per substep (keeps fast throws from tunnelling)
+const MAXV = 10;               // max displacement per substep (keeps fast throws from tunnelling)
+const SOLVER_ITERS = 4;
+const RIGID_SHARE = 0.9;       // how much of a contact push also carries the whole body        // contact passes per substep; one pass lets tall piles sink into each other
 const MAX_BODIES = 90;
 const SPACING = 10;            // target outline point spacing (px)
 const CEIL = -2400;
@@ -376,11 +418,17 @@ class Jelly {
     this.size = mr;
     this.per = 0;
     for (let i = 0; i < n; i++) this.per += this.rest[i];
-    // hard cap on how far any point may stray from the rigid rest shape
-    this.maxDev = Math.max(7, Math.min(26, mr * 0.2));
+    // hard cap on how far any point may stray from the rigid rest shape;
+    // thin strokes (script words) get a tighter cap so they can't be mangled
+    let holeA = 0, perAll = 0;
+    for (let r = 1; r < rings.length; r++) holeA += Math.abs(ringArea(this.x, this.y, rings[r].s, rings[r].l));
+    for (let i = 0; i < c; i++) perAll += this.rest[i];
+    const halfW = (Math.abs(this.restArea) - holeA) / perAll;
+    this.maxDev = Math.max(5, Math.min(18, mr * 0.2, halfW * 1.1));
     this.cx = cx; this.cy = cy; this.ang = 0;
     this.minx = 0; this.miny = 0; this.maxx = 0; this.maxy = 0;
     this.pop = -1;
+    this.rdx = 0; this.rdy = 0; this.rn = 0;   // contact pushes collected during one solver pass
     this.bbox();
   }
   bbox() {
@@ -510,34 +558,60 @@ const MAX_PUSH = 10;   // px per substep; deep overlaps resolve over several sub
 function collide(A, B) {
   const ax = A.x, ay = A.y, bx = B.x, by = B.y;
   const FR = 0.14;
+  let stuck = 0;
   for (let i = 0; i < A.n; i++) {
     const X = ax[i], Y = ay[i];
     if (X < B.minx || X > B.maxx || Y < B.miny || Y > B.maxy) continue;
     if (!insideBody(B, X, Y)) continue;
-    // nearest edge of B, on any ring (holes included)
-    let best = Infinity, bj = 0, bk = 0, bt = 0, qx = 0, qy = 0;
-    for (const r of B.rings) {
-      const e = r.s + r.l;
-      for (let j = r.s; j < e; j++) {
-        const k = j + 1 === e ? r.s : j + 1;
-        const ex = bx[k] - bx[j], ey = by[k] - by[j];
-        const l2 = ex * ex + ey * ey || 1e-9;
-        let t = ((X - bx[j]) * ex + (Y - by[j]) * ey) / l2;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const cx = bx[j] + ex * t, cy = by[j] + ey * t;
-        const d2 = (cx - X) * (cx - X) + (cy - Y) * (cy - Y);
-        if (d2 < best) { best = d2; bj = j; bk = k; bt = t; qx = cx; qy = cy; }
+    let bj = 0, bk = 0, bt = 0, qx = 0, qy = 0, crossed = false;
+    // continuous check: if the point was outside last substep, send it back to where it crossed B's skin
+    const PX = A.px[i], PY = A.py[i];
+    if (!insideBody(B, PX, PY)) {
+      const mx = X - PX, my = Y - PY;
+      let tBest = 2;
+      for (const r of B.rings) {
+        const e = r.s + r.l;
+        for (let j = r.s; j < e; j++) {
+          const k = j + 1 === e ? r.s : j + 1;
+          const sx = bx[k] - bx[j], sy = by[k] - by[j];
+          const den = mx * sy - my * sx;
+          if (den > -1e-9 && den < 1e-9) continue;
+          const ox = bx[j] - PX, oy = by[j] - PY;
+          const t = (ox * sy - oy * sx) / den, u = (ox * my - oy * mx) / den;
+          if (t >= 0 && t <= 1 && u >= 0 && u <= 1 && t < tBest) { tBest = t; bj = j; bk = k; bt = u; }
+        }
       }
+      if (tBest <= 1) { qx = PX + mx * tBest; qy = PY + my * tBest; crossed = true; }
+    }
+    if (!crossed) {
+      // already deep inside: nearest edge of B on any ring (holes included), and flag the pair as stuck
+      let best = Infinity;
+      for (const r of B.rings) {
+        const e = r.s + r.l;
+        for (let j = r.s; j < e; j++) {
+          const k = j + 1 === e ? r.s : j + 1;
+          const ex = bx[k] - bx[j], ey = by[k] - by[j];
+          const l2 = ex * ex + ey * ey || 1e-9;
+          let t = ((X - bx[j]) * ex + (Y - by[j]) * ey) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const cx = bx[j] + ex * t, cy = by[j] + ey * t;
+          const d2 = (cx - X) * (cx - X) + (cy - Y) * (cy - Y);
+          if (d2 < best) { best = d2; bj = j; bk = k; bt = t; qx = cx; qy = cy; }
+        }
+      }
+      if (best > 4) stuck++;
     }
     const k = bk;
     let dx = qx - X, dy = qy - Y;
     let dl = Math.sqrt(dx * dx + dy * dy);
     if (dl < 1e-6) continue;
-    if (dl > MAX_PUSH) { const f = MAX_PUSH / dl; dx *= f; dy *= f; dl = MAX_PUSH; }
+    if (!crossed && dl > MAX_PUSH) { const f = MAX_PUSH / dl; dx *= f; dy *= f; dl = MAX_PUSH; }
     const w0 = 1 - bt, w1 = bt, norm = 0.5 / (w0 * w0 + w1 * w1);
     ax[i] += dx * 0.5; ay[i] += dy * 0.5;
     bx[bj] -= dx * norm * w0; by[bj] -= dy * norm * w0;
     bx[k] -= dx * norm * w1; by[k] -= dy * norm * w1;
+    A.rdx += dx * 0.5; A.rdy += dy * 0.5; A.rn++;
+    B.rdx -= dx * 0.5; B.rdy -= dy * 0.5; B.rn++;
     // tangential friction
     const nx = dx / dl, ny = dy / dl;
     const rvx = (ax[i] - A.px[i]) - (w0 * (bx[bj] - B.px[bj]) + w1 * (bx[k] - B.px[k]));
@@ -548,6 +622,17 @@ function collide(A, B) {
     B.px[bj] -= tx * 0.5 * w0; B.py[bj] -= ty * 0.5 * w0;
     B.px[k] -= tx * 0.5 * w1; B.py[k] -= ty * 0.5 * w1;
   }
+  if (stuck) separate(A, B, stuck);
+}
+
+// Last resort for interlocked jellies: slide both whole bodies apart (position only, no added speed).
+function separate(A, B, count) {
+  let dx = B.cx - A.cx, dy = B.cy - A.cy;
+  const l = Math.hypot(dx, dy);
+  if (l < 1e-6) { dx = 0; dy = -1; } else { dx /= l; dy /= l; }
+  const m = Math.min(1.5, 0.15 * count);
+  for (let i = 0; i < A.c; i++) { A.x[i] -= dx * m; A.y[i] -= dy * m; A.px[i] -= dx * m; A.py[i] -= dy * m; }
+  for (let i = 0; i < B.c; i++) { B.x[i] += dx * m; B.y[i] += dy * m; B.px[i] += dx * m; B.py[i] += dy * m; }
 }
 
 function walls(b) {
@@ -586,10 +671,13 @@ function applyGrabs() {
     const c = Math.cos(b.ang), s = Math.sin(b.ang);
     const hx = b.cx + c * g.lx - s * g.ly, hy = b.cy + s * g.lx + c * g.ly;
     const dx = g.mx - hx, dy = g.my - hy;
-    const GK = 0.075;
+    const GK = 0.075, GRAB_MAX = 3.5;   // px per substep; contacts always get the last word
     for (let i = 0; i < b.c; i++) {
       const w = g.w[i] * GK;
-      b.x[i] += dx * w; b.y[i] += dy * w;
+      let sx = dx * w, sy = dy * w;
+      const sl = Math.hypot(sx, sy);
+      if (sl > GRAB_MAX) { sx *= GRAB_MAX / sl; sy *= GRAB_MAX / sl; }
+      b.x[i] += sx; b.y[i] += sy;
       // light damping while held so it doesn't orbit the cursor
       b.px[i] += (b.x[i] - b.px[i]) * 0.04 * g.w[i];
       b.py[i] += (b.y[i] - b.py[i]) * 0.04 * g.w[i];
@@ -605,19 +693,31 @@ function substep() {
   for (let i = 0; i < nb; i++) integrate(bodies[i], g, damp);
   for (let i = 0; i < nb; i++) constrain(bodies[i], K);
   if (grabs.size) applyGrabs();
-  for (let i = 0; i < nb; i++) bodies[i].bbox();
-  skinContacts();
-  for (let i = 0; i < nb; i++) {
-    const a = bodies[i];
-    if (a.pop >= 0) continue;
-    for (let j = i + 1; j < nb; j++) {
-      const b = bodies[j];
-      if (b.pop >= 0) continue;
-      if (a.maxx < b.minx || a.minx > b.maxx || a.maxy < b.miny || a.miny > b.maxy) continue;
-      collide(a, b); collide(b, a);
+  for (let it = 0; it < SOLVER_ITERS; it++) {
+    for (let i = 0; i < nb; i++) { const b = bodies[i]; b.bbox(); b.rdx = 0; b.rdy = 0; b.rn = 0; }
+    skinContacts();
+    for (let i = 0; i < nb; i++) {
+      const a = bodies[i];
+      if (a.pop >= 0) continue;
+      for (let j = i + 1; j < nb; j++) {
+        const b = bodies[j];
+        if (b.pop >= 0) continue;
+        if (a.maxx < b.minx || a.minx > b.maxx || a.maxy < b.miny || a.miny > b.maxy) continue;
+        collide(a, b); collide(b, a);
+      }
     }
+    // Part of every contact push moves the whole jelly, so pressed bodies slide apart instead of
+    // squishing until the deformation cap shoves them straight back in. Bigger jellies are heavier.
+    for (let i = 0; i < nb; i++) {
+      const b = bodies[i];
+      if (!b.rn) continue;
+      const f = RIGID_SHARE / b.rn / (1 + b.c / 60);
+      const sx = b.rdx * f, sy = b.rdy * f;
+      for (let k = 0; k < b.c; k++) { b.x[k] += sx; b.y[k] += sy; }
+    }
+    // walls inside the loop, so the floor can't shove the bottom of a pile back into the jellies above
+    for (let i = 0; i < nb; i++) walls(bodies[i]);
   }
-  for (let i = 0; i < nb; i++) walls(bodies[i]);
 }
 
 /* ---------- skin contacts ----------
@@ -671,6 +771,8 @@ function skinContacts() {
           const d = Math.sqrt(d2), o = (SKIN_D - d) * 0.5 / d;
           A.x[i] -= dx * o; A.y[i] -= dy * o;
           B.x[j] += dx * o; B.y[j] += dy * o;
+          A.rdx -= dx * o; A.rdy -= dy * o; A.rn++;
+          B.rdx += dx * o; B.rdy += dy * o; B.rn++;
           // tangential friction so piles don't slide like soap
           const nx = dx / d, ny = dy / d;
           const rvx = (A.x[i] - A.px[i]) - (B.x[j] - B.px[j]);
@@ -1027,6 +1129,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
+let env = { id: 'room' }, envTex = null;   // active environment (see ENVS below)
+let lookDark = dark;                       // jellies use the glowing look on dark rooms and night HDRIs
+const envListeners = [];
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.85;
@@ -1059,6 +1164,12 @@ const room = {};
 room.floor.rotation.x = -Math.PI / 2;
 room.left.rotation.y = Math.PI / 2;
 room.right.rotation.y = -Math.PI / 2;
+// in HDRI scenes the room disappears and an invisible floor keeps the shadows
+const shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ opacity: 0.32 }));
+shadowFloor.rotation.x = -Math.PI / 2;
+shadowFloor.receiveShadow = true;
+shadowFloor.visible = false;
+scene.add(shadowFloor);
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0x7d8696, 0.75);
 scene.add(hemi);
@@ -1074,17 +1185,25 @@ const rim = new THREE.DirectionalLight(0xffffff, 0.9);
 scene.add(rim);
 
 function applyTheme() {
-  const wall = dark ? 0x232937 : 0xe6eaf0;
-  const floorC = dark ? 0x1b202b : 0xd6dce5;
-  room.back.material.color.setHex(wall);
-  room.left.material.color.setHex(wall);
-  room.right.material.color.setHex(wall);
-  room.floor.material.color.setHex(floorC);
-  scene.background = new THREE.Color(wall);
-  hemi.intensity = dark ? 0.6 : 0.75;
-  key.intensity = dark ? 2.2 : 2.4;
-  scene.environmentIntensity = dark ? 0.7 : 0.85;
+  // text that sits straight on the scene follows the backdrop's brightness
+  document.body.dataset.scene = env.hdr ? (env.dark ? 'dark' : 'light') : '';
+  if (env.hdr) {
+    lookDark = !!env.dark;
+  } else {
+    lookDark = dark;
+    const wall = dark ? 0x232937 : 0xe6eaf0;
+    const floorC = dark ? 0x1b202b : 0xd6dce5;
+    room.back.material.color.setHex(wall);
+    room.left.material.color.setHex(wall);
+    room.right.material.color.setHex(wall);
+    room.floor.material.color.setHex(floorC);
+    scene.background = new THREE.Color(wall);
+    hemi.intensity = dark ? 0.6 : 0.75;
+    key.intensity = dark ? 2.2 : 2.4;
+    scene.environmentIntensity = dark ? 0.7 : 0.85;
+  }
   for (const b of bodies) if (b.g) styleMaterial(b.g.mesh.material, b.hue, b.g.T);
+  envListeners.forEach(f => f());
 }
 darkMQ.addEventListener && darkMQ.addEventListener('change', applyTheme);
 
@@ -1112,6 +1231,8 @@ function layout3D() {
   set(room.floor, W, depth, 0, -H / 2, zMid);
   set(room.left, depth, wallH, -W / 2, wallY, zMid);
   set(room.right, depth, wallH, W / 2, wallY, zMid);
+  shadowFloor.scale.set(W * 6, depth, 1);
+  shadowFloor.position.set(0, -H / 2, zMid);
 
   const S = Math.max(W, H);
   key.position.set(-W * 0.28, H * 0.95, CAM_D * 0.55);
@@ -1126,16 +1247,76 @@ window.addEventListener('resize', layout3D);
 layout3D();
 applyTheme();
 
+/* ---------- environments ---------- */
+// HDRIs: Poly Haven, CC0. Studio room is the built-in tiled room.
+const ENVS = [
+  { id: 'room', label: 'Studio room' },
+  // rot: degrees around the vertical axis, picked so the best part of each panorama sits behind the jellies
+  { id: 'studio', label: 'Photo studio', hdr: 'studio_small_09', exposure: 1.0, blur: 0.3, rot: 90 },
+  { id: 'sunset', label: 'Venice sunset', hdr: 'venice_sunset', exposure: 1.25, blur: 0.2, rot: 270 },
+  { id: 'sky', label: 'Open sky', hdr: 'kloofendal_48d_partly_cloudy_puresky', exposure: 1.0, blur: 0.12, rot: 90 },
+  { id: 'forest', label: 'Rainforest', hdr: 'rainforest_trail', exposure: 1.15, blur: 0.2, rot: 270 },
+  { id: 'beach', label: 'Beach sunrise', hdr: 'umhlanga_sunrise', exposure: 1.05, blur: 0.18, rot: 0 },
+  { id: 'snow', label: 'Snowy park', hdr: 'snowy_park_01', exposure: 0.9, blur: 0.2, rot: 0 },
+  { id: 'night', label: 'Night lights', hdr: 'satara_night', exposure: 0.75, blur: 0.12, rot: 0, dark: true },
+];
+const hdrUrl = id => `https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/${id}_1k.hdr`;
+const thumbUrl = id => `https://cdn.polyhaven.com/asset_img/thumbs/${id}.png?width=256&height=144`;
+const roomEnvTex = scene.environment;
+const hdrLoader = new HDRLoader();
+const hdrCache = new Map();
+env = ENVS[0];
+
+function loadHdr(e, onProgress) {
+  if (hdrCache.has(e.id)) return hdrCache.get(e.id);
+  const p = new Promise((resolve, reject) => {
+    hdrLoader.load(hdrUrl(e.hdr), t => {
+      t.mapping = THREE.EquirectangularReflectionMapping;
+      resolve(t);
+    }, ev => { if (onProgress && ev.total) onProgress(ev.loaded / ev.total); }, reject);
+  });
+  hdrCache.set(e.id, p);
+  p.catch(() => hdrCache.delete(e.id));
+  return p;
+}
+
+function applyEnvironment(e, tex) {
+  env = e;
+  envTex = tex || null;
+  const hdr = !!e.hdr;
+  for (const k in room) room[k].visible = !hdr;
+  shadowFloor.visible = hdr;
+  const rot = THREE.MathUtils.degToRad(e.rot || 0);
+  scene.backgroundRotation.set(0, rot, 0);
+  scene.environmentRotation.set(0, rot, 0);
+  if (hdr) {
+    scene.environment = tex;
+    scene.background = tex;
+    scene.backgroundBlurriness = e.blur;
+    scene.environmentIntensity = 1;
+    renderer.toneMappingExposure = e.exposure;
+    hemi.intensity = 0.15;
+    key.intensity = 1.1;
+    rim.intensity = 0;
+  } else {
+    scene.environment = roomEnvTex;
+    scene.backgroundBlurriness = 0;
+    renderer.toneMappingExposure = 1.05;
+    rim.intensity = 0.9;
+  }
+  applyTheme();
+}
+
 /* ---------- jelly meshes ---------- */
 function styleMaterial(m, hue, T) {
   const h = (((hue % 360) + 360) % 360) / 360;
   // pale surface tint + deep attenuation: thin edges glow, thick cores go rich and saturated
-  m.color.setHSL(h, 1, dark ? 0.8 : 0.72);
-  m.attenuationColor.setHSL(h, 1, dark ? 0.55 : 0.4);
-  m.attenuationDistance = T * (dark ? 1.3 : 0.65);
+  m.color.setHSL(h, 1, lookDark ? 0.8 : 0.72);
+  m.attenuationColor.setHSL(h, 1, lookDark ? 0.55 : 0.4);
+  m.attenuationDistance = T * (lookDark ? 1.3 : 0.65);
   m.thickness = T * 1.25;
-  m.emissive.setHSL(h, 1, dark ? 0.42 : 0.5);
-  m.emissiveIntensity = dark ? 0.32 : 0.02;
+  m.emissive.setHSL(h, 1, lookDark ? 0.42 : 0.5);
+  m.emissiveIntensity = lookDark ? 0.32 : 0.02;
   m.needsUpdate = true;
 }
 function makeMaterial(hue, T) {
@@ -1186,7 +1367,7 @@ function build3D(b, custom) {
     // thickness follows stroke weight, so long whole words don't turn into slabs
     T = clamp(Math.min(b.size * 0.55, halfW * 4.2), 26, 76);
     const bs = clamp(halfW * 0.55, 2, 10);
-    const SKIN_OUT = 3.5;   // mesh reaches slightly past the outline to cover the collision skin gap
+    const SKIN_OUT = 2.5;   // mesh reaches slightly past the outline to cover most of the collision skin gap
 
     const shape = ringToPath(new THREE.Shape(), b, b.rings[0]);
     for (let r = 1; r < b.rings.length; r++) shape.holes.push(ringToPath(new THREE.Path(), b, b.rings[r]));
@@ -1231,6 +1412,7 @@ function build3D(b, custom) {
     mesh, geo, base, idx, wts, T,
     ex: new Float32Array(b.c), ey: new Float32Array(b.c), sz: new Float32Array(b.c).fill(1),
     lx: new Float32Array(b.c), ly: new Float32Array(b.c), dirty: true,
+    sx: new Float32Array(b.c), sy: new Float32Array(b.c), tx2: new Float32Array(b.c), ty2: new Float32Array(b.c),
     zs: 1, zv: 0, tx: 0, ty: 0, tvx: 0, tvy: 0,
     pcx: b.cx, pcy: b.cy, pvx: 0, pvy: 0,
   };
@@ -1295,8 +1477,19 @@ function deform3D(b) {
     const l1 = Math.hypot(x[j] - x[i], y[j] - y[i]), l0 = Math.hypot(x[i] - x[p], y[i] - y[p]);
     g.sz[i] = (b.rest[i] + b.rest[p]) / (l1 + l0 + 1e-6);
   }
+  // low-pass the outline deformation so single contact dents read as squish, not crumpled folds
+  let ex = g.ex, ey = g.ey, ox = g.sx, oy = g.sy;
+  for (let pass = 0; pass < 3; pass++) {
+    for (const r of b.rings) for (let k = 0; k < r.l; k++) {
+      const i = r.s + k, p = r.s + (k - 1 + r.l) % r.l, q = r.s + (k + 1) % r.l;
+      ox[i] = ex[p] * 0.25 + ex[i] * 0.5 + ex[q] * 0.25;
+      oy[i] = ey[p] * 0.25 + ey[i] * 0.5 + ey[q] * 0.25;
+    }
+    if (pass === 0) { ex = ox; ey = oy; ox = g.tx2; oy = g.ty2; }
+    else { const tx = ex, ty = ey; ex = ox; ey = oy; ox = tx; oy = ty; }
+  }
   const arr = g.geo.attributes.position.array, base = g.base, idx = g.idx, wts = g.wts;
-  const ex = g.ex, ey = g.ey, sz = g.sz;
+  const sz = g.sz;
   const nv = arr.length / 3;
   for (let v = 0, o = 0, v3 = 0; v < nv; v++, o += KW, v3 += 3) {
     let ax = 0, ay = 0, as = 0;
@@ -1311,7 +1504,7 @@ function deform3D(b) {
   }
   g.geo.attributes.position.needsUpdate = true;
   fastNormals(g.geo);
-  g.lx.set(ex); g.ly.set(ey);
+  g.lx.set(g.ex); g.ly.set(g.ey);
   g.dirty = false;
 }
 
@@ -1324,7 +1517,8 @@ function pose3D(b) {
   if (!reduce) {
     g.zv += jolt * 0.0045;
     g.zv += (1 - g.zs) * 0.16; g.zv *= 0.86; g.zs = clamp(g.zs + g.zv, 0.72, 1.4);
-    const tX = clamp(vy * 0.018, -0.45, 0.45), tY = clamp(vx * 0.018, -0.45, 0.45);
+    // small lean only: a big tilt swings the thick mesh past its outline into neighbours
+    const tX = clamp(vy * 0.012, -0.16, 0.16), tY = clamp(vx * 0.012, -0.16, 0.16);
     g.tvx += (tX - g.tx) * 0.1; g.tvx *= 0.84; g.tx += g.tvx;
     g.tvy += (tY - g.ty) * 0.1; g.tvy *= 0.84; g.ty += g.tvy;
   } else { g.zs = 1; g.tx = g.ty = 0; }
@@ -1332,17 +1526,16 @@ function pose3D(b) {
   const mesh = g.mesh;
   mesh.position.set(cx - W / 2, H / 2 - cy, 0);
   mesh.rotation.set(g.tx, g.ty, -g.ang);
-  const squash = 1 + (1 - g.zs) * 0.35;
   let sc = 1;
   if (b.pop >= 0) {
     sc = 1 + 0.35 * b.pop;
     mesh.material.transparent = true;
     mesh.material.opacity = 1 - b.pop;
   }
-  mesh.scale.set(squash * sc, squash * sc, g.zs * sc);
+  mesh.scale.set(sc, sc, g.zs * sc);
 }
 
-const DEFORM_BUDGET = 14;     // mesh rebuilds per frame; the most-deformed jellies go first
+const DEFORM_BUDGET = 24;     // mesh rebuilds per frame; the most-deformed jellies go first
 const DEFORM_EPS = 0.4;       // px of shape drift before a rebuild is worth it
 const queue = [];
 function update3DAll() {
@@ -1755,7 +1948,8 @@ function initSculpt() {
   r.toneMappingExposure = 1.05;
   r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   const sc = new THREE.Scene();
-  sc.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+  const roomEnv = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+  sc.environment = roomEnv;
   sc.environmentIntensity = 0.9;
   const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 50);
   cam.position.set(0, 0, 6.2);
@@ -1770,7 +1964,7 @@ function initSculpt() {
   sc.add(back);
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(currentHue(), 1));
   sc.add(mesh);
-  SC = { r, sc, cam, mesh, back, adj: null, undo: [], queued: false, normalsDirty: false, stroke: null };
+  SC = { r, sc, cam, mesh, back, roomEnv, adj: null, undo: [], queued: false, normalsDirty: false, stroke: null };
   setSculptGeometry(baseGeometry('sphere'));
   styleSculpt();
   return true;
@@ -1778,10 +1972,26 @@ function initSculpt() {
 
 function styleSculpt() {
   styleMaterial(SC.mesh.material, currentHue(), 1);
-  SC.back.material.color.setHex(dark ? 0x232937 : 0xe6eaf0);
+  const sc = SC.sc;
+  const rot = THREE.MathUtils.degToRad(env.rot || 0);
+  sc.backgroundRotation.set(0, rot, 0);
+  sc.environmentRotation.set(0, rot, 0);
+  if (env.hdr && envTex) {
+    sc.environment = envTex;
+    sc.background = envTex;
+    sc.backgroundBlurriness = env.blur;
+    SC.back.visible = false;
+    SC.r.toneMappingExposure = env.exposure;
+  } else {
+    sc.environment = SC.roomEnv;
+    sc.background = null;
+    SC.back.visible = true;
+    SC.back.material.color.setHex(dark ? 0x232937 : 0xe6eaf0);
+    SC.r.toneMappingExposure = 1.05;
+  }
   renderSculpt();
 }
-darkMQ.addEventListener && darkMQ.addEventListener('change', () => { if (SC) styleSculpt(); });
+envListeners.push(() => { if (SC) styleSculpt(); });
 
 function renderSculpt() {
   if (!SC || SC.queued) return;
@@ -2149,7 +2359,9 @@ grip.addEventListener('keydown', e => {
   saveUI();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !editor.hidden) closeEditor();
+  if (e.key !== 'Escape') return;
+  if (!scenePop.hidden) { toggleScenes(false); sceneBtn.focus(); return; }
+  if (!editor.hidden) closeEditor();
 });
 window.addEventListener('resize', () => {
   if (!editor.hidden) keepEditorInView();
@@ -2160,6 +2372,86 @@ editor.classList.add('placed');
 ui.e = placeEl(editor, ...(ui.e || defaultEditorPos()));
 if (ui.open === false) closeEditor(false, ui.l);
 
+/* ---------- scene picker ---------- */
+const sceneBtn = document.getElementById('sceneBtn');
+const scenePop = document.getElementById('scenePop');
+const sceneGrid = document.getElementById('sceneGrid');
+const errScene = document.getElementById('err-scene');
+const ENV_KEY = 'jellybox.env.v1';
+ENVS.forEach((e, i) => {
+  const b = document.createElement('button');
+  b.className = 'scene-card';
+  b.setAttribute('role', 'radio');
+  b.setAttribute('aria-checked', String(i === 0));
+  b.tabIndex = i === 0 ? 0 : -1;
+  b.dataset.value = e.id;
+  const thumb = document.createElement('span');
+  thumb.className = 'thumb';
+  if (e.hdr) {
+    const img = document.createElement('img');
+    img.src = thumbUrl(e.hdr); img.alt = ''; img.loading = 'lazy'; img.width = 256; img.height = 144;
+    thumb.appendChild(img);
+  } else {
+    thumb.classList.add('room-thumb');
+  }
+  const meta = document.createElement('span');
+  meta.className = 'meta';
+  const name = document.createElement('span');
+  name.textContent = e.label;
+  const state = document.createElement('span');
+  state.className = 'state';
+  meta.append(name, state);
+  b.append(thumb, meta);
+  sceneGrid.appendChild(b);
+});
+function markScene(id) {
+  [...sceneGrid.children].forEach(c => {
+    const on = c.dataset.value === id;
+    c.setAttribute('aria-checked', String(on));
+    c.tabIndex = on ? 0 : -1;
+  });
+}
+let envReq = 0;
+async function chooseEnv(id) {
+  const e = ENVS.find(x => x.id === id) || ENVS[0];
+  const req = ++envReq;
+  errScene.textContent = '';
+  markScene(e.id);
+  if (!e.hdr) {
+    applyEnvironment(e, null);
+    try { localStorage.setItem(ENV_KEY, e.id); } catch (_) {}
+    return;
+  }
+  const state = sceneGrid.querySelector(`[data-value="${e.id}"] .state`);
+  state.textContent = 'Loading';
+  try {
+    const tex = await loadHdr(e, f => { state.textContent = Math.round(f * 100) + '%'; });
+    if (req !== envReq) return;   // a newer pick won the race
+    applyEnvironment(e, tex);
+    try { localStorage.setItem(ENV_KEY, e.id); } catch (_) {}
+  } catch (_) {
+    if (req === envReq) {
+      errScene.textContent = `${e.label} could not be downloaded. Check your connection and try again.`;
+      markScene(env.id);
+    }
+  } finally {
+    state.textContent = '';
+  }
+}
+radioGroup(sceneGrid, id => chooseEnv(id));
+function toggleScenes(open) {
+  scenePop.hidden = !open;
+  sceneBtn.setAttribute('aria-expanded', String(open));
+  if (open) { const c = sceneGrid.querySelector('[aria-checked="true"]'); if (c) c.focus(); }
+}
+sceneBtn.addEventListener('click', () => toggleScenes(scenePop.hidden));
+document.addEventListener('pointerdown', e => {
+  if (!scenePop.hidden && !scenePop.contains(e.target) && !sceneBtn.contains(e.target)) toggleScenes(false);
+});
+let savedEnv = null;
+try { savedEnv = localStorage.getItem(ENV_KEY); } catch (_) {}
+if (savedEnv && savedEnv !== 'room') chooseEnv(savedEnv);
+
 /* ---------- start ---------- */
 const start = () => {
   spawnShapes(textToShapes('jelly', FONTS[0], false));
@@ -2167,7 +2459,7 @@ const start = () => {
 };
 (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
 
-window.__jelly = { bodies, spawnShapes, textToShapes, FONTS, sculptToShapes, getSC: () => SC };
+window.__jelly = { bodies, spawnShapes, textToShapes, FONTS, sculptToShapes, getSC: () => SC, chooseEnv, getEnv: () => env.id };
 
 })();
 </script>
