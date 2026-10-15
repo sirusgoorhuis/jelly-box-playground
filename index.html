@@ -1,0 +1,2175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Jelly Box</title>
+<link rel="icon" href="data:,">
+<!-- Icons are progressive: labels still render if this CDN is unreachable. -->
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<!-- Display fonts for jelly text. If they fail to load, text falls back to the system rounded font. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Chewy&family=Fredoka:wght@700&family=Lobster&family=Pacifico&family=Rubik+Mono+One&family=Titan+One&display=swap">
+<style>
+:root{
+  --bg-a:#eef1f5; --bg-b:#dfe4ec;
+  --ink:#15171c; --ink-2:#4b515d;
+  --line:rgba(21,23,28,.12);
+  --glass:rgba(255,255,255,.58); --glass-edge:rgba(255,255,255,.75);
+  --field:rgba(255,255,255,.85);
+  --accent:#d2335b; --accent-ink:#ffffff;
+  --err:#b4232f;
+  --shadow:0 20px 50px rgba(60,72,96,.18);
+  --r-panel:20px; --r-ctl:12px;
+  --ui:-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg-a:#141821; --bg-b:#0b0d12;
+    --ink:#eef0f4; --ink-2:#a6acb8;
+    --line:rgba(255,255,255,.12);
+    --glass:rgba(22,25,34,.6); --glass-edge:rgba(255,255,255,.10);
+    --field:rgba(8,10,14,.6);
+    --err:#ff7b86;
+    --shadow:0 20px 50px rgba(0,0,0,.45);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  font-family:var(--ui); color:var(--ink);
+  background:radial-gradient(120% 90% at 30% 10%, var(--bg-a), var(--bg-b));
+  -webkit-font-smoothing:antialiased;
+}
+#stage{position:fixed;inset:0;width:100%;height:100dvh;touch-action:none;display:block}
+
+.brand{position:fixed;top:18px;left:22px;pointer-events:none;user-select:none}
+.brand h1{margin:0;font-size:20px;font-weight:750;letter-spacing:-.02em}
+.brand p{margin:4px 0 0;font-size:13px;color:var(--ink-2)}
+
+.glass{
+  background:var(--glass);
+  border:1px solid var(--glass-edge);
+  box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.25);
+  -webkit-backdrop-filter:blur(12px) saturate(160%);
+  backdrop-filter:blur(12px) saturate(160%);
+}
+@media (prefers-reduced-transparency: reduce){
+  .glass{background:var(--bg-a);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+
+.tools{position:fixed;top:14px;right:14px;display:flex;gap:6px;padding:6px;border-radius:var(--r-panel)}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;
+  border-radius:var(--r-ctl);border:1px solid transparent;background:transparent;
+  font-size:14px;font-weight:550;white-space:nowrap;
+  transition:transform .15s cubic-bezier(.16,1,.3,1), background .2s;
+}
+.btn:hover{background:var(--line)}
+.btn:active{transform:scale(.97)}
+.btn i{font-size:18px}
+.btn[aria-pressed="false"]{color:var(--ink-2)}
+.btn:focus-visible,.seg button:focus-visible,.sw:focus-visible,input:focus-visible,#pad:focus-visible,
+.font-pill:focus-visible,.launcher:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px
+}
+
+.empty{
+  position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);
+  text-align:center;pointer-events:none;transition:opacity .4s;
+  width:min(90vw,420px)
+}
+.empty h2{margin:0;font-size:28px;letter-spacing:-.02em;font-weight:700}
+.empty p{margin:8px 0 0;color:var(--ink-2);font-size:15px;line-height:1.5}
+.empty[hidden]{display:block;opacity:0}
+
+.editor{
+  position:fixed;left:50%;top:14px;transform:translateX(-50%);
+  width:min(560px, calc(100% - 16px));
+  max-height:calc(100dvh - 16px);overflow:auto;overscroll-behavior:contain;
+  border-radius:var(--r-panel);padding:12px;
+  display:grid;gap:12px;
+}
+.editor.placed{left:0;top:0}
+.editor[hidden],.launcher[hidden]{display:none}
+.top{display:flex;align-items:center;gap:8px;cursor:grab;user-select:none;-webkit-user-select:none;touch-action:none}
+.top .seg{margin-right:auto}
+.dragging,.dragging .top{cursor:grabbing}
+.btn.icon{width:38px;padding:0;justify-content:center}
+.grip{color:var(--ink-2);cursor:grab}
+.launcher{
+  position:fixed;left:0;top:0;width:54px;height:54px;padding:0;border-radius:999px;
+  display:grid;place-items:center;color:var(--ink);font-size:24px;cursor:grab;touch-action:none;
+}
+@media (prefers-reduced-motion: no-preference){
+  .editor,.launcher{animation:pop-in .22s cubic-bezier(.16,1,.3,1)}
+}
+@keyframes pop-in{from{opacity:0;scale:.94}}
+.seg{display:inline-flex;padding:3px;border-radius:var(--r-ctl);background:var(--line)}
+.seg button{
+  display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:0;
+  border-radius:10px;background:transparent;font-size:14px;font-weight:600;color:var(--ink-2)
+}
+.seg button[aria-selected="true"],.seg button[aria-checked="true"]{background:var(--field);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg.small button{height:32px;padding:0 12px;font-size:13px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.fonts{display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;padding:2px 2px 6px;scrollbar-width:thin}
+.font-pill{
+  flex:none;height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--line);
+  background:var(--field);color:var(--ink);font-size:18px;line-height:1;scroll-snap-align:start;
+  transition:transform .15s cubic-bezier(.16,1,.3,1), border-color .2s;
+}
+.font-pill:active{transform:scale(.97)}
+.font-pill[aria-checked="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+#sculpt{
+  display:block;width:100%;height:230px;border-radius:var(--r-ctl);
+  border:1px solid var(--line);background:var(--field);touch-action:none;cursor:crosshair
+}
+#sculpt.rotating{cursor:grabbing}
+.padhint.low{place-items:end center;padding-bottom:10px;font-size:13px}
+.padhint[hidden]{display:none}
+.primary[aria-busy="true"]{opacity:.7;pointer-events:none}
+
+.pane{display:grid;gap:8px}
+.pane[hidden]{display:none}
+.lbl{font-size:13px;font-weight:600;color:var(--ink-2)}
+#text{
+  width:100%;height:50px;padding:0 14px;border-radius:var(--r-ctl);
+  border:1px solid var(--line);background:var(--field);color:var(--ink);
+  font:600 19px/1 var(--ui);
+}
+#text::placeholder{color:var(--ink-2);opacity:.8}
+.padwrap{position:relative}
+#pad{
+  display:block;width:100%;height:190px;border-radius:var(--r-ctl);
+  border:1px solid var(--line);background:var(--field);touch-action:none;cursor:crosshair
+}
+.padhint{
+  position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;
+  color:var(--ink-2);font-size:14px
+}
+.padtools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.padtools label{font-size:13px;font-weight:600;color:var(--ink-2)}
+.padtools input[type=range]{flex:1;min-width:110px;accent-color:var(--accent)}
+.err{margin:0;min-height:18px;font-size:13px;color:var(--err)}
+
+.foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.swatches{display:flex;gap:6px;flex-wrap:wrap}
+.sw{
+  width:26px;height:26px;border-radius:999px;border:2px solid transparent;padding:0;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+  transition:transform .15s cubic-bezier(.16,1,.3,1)
+}
+.sw:hover{transform:scale(1.1)}
+.sw[aria-checked="true"]{border-color:var(--ink);transform:scale(1.08)}
+.sw.mix{background:conic-gradient(#ff5d7d,#ffb03b,#f7e04a,#5fd27c,#3cc8e0,#5c8cff,#a46bff,#ff6fd0,#ff5d7d)}
+.primary{
+  height:44px;padding:0 20px;border-radius:var(--r-ctl);border:0;
+  background:var(--accent);color:var(--accent-ink);font-weight:650;font-size:15px;
+  display:inline-flex;align-items:center;gap:8px;
+  box-shadow:0 8px 20px rgba(210,51,91,.28);
+  transition:transform .15s cubic-bezier(.16,1,.3,1), filter .2s
+}
+.primary:hover{filter:brightness(1.06)}
+.primary:active{transform:translateY(1px) scale(.98)}
+
+@media (max-width:640px){
+  .brand p{display:none}
+  .tools .btn span{display:none}
+  #pad{height:150px}
+  #sculpt{height:180px}
+  .empty{top:30%}
+}
+@media (max-width:480px){
+  .top .seg button i{display:none}
+  .top .seg button{padding:0 10px}
+}
+</style>
+</head>
+<body>
+<canvas id="stage" aria-label="Jelly playground. Drag jellies to move or throw them, double-click to pop."></canvas>
+
+<header class="brand">
+  <h1>Jelly Box</h1>
+  <p>Drag to grab. Flick to throw. Double-click to pop.</p>
+</header>
+
+<div class="tools glass" role="toolbar" aria-label="Playground tools">
+  <button class="btn" id="gravity" aria-pressed="true" title="Toggle gravity"><i class="ph ph-arrow-fat-lines-down"></i><span>Gravity</span></button>
+  <button class="btn" id="shake" title="Shake everything"><i class="ph ph-vibrate"></i><span>Shake</span></button>
+  <button class="btn" id="clearAll" title="Pop all jellies"><i class="ph ph-trash"></i><span>Clear</span></button>
+</div>
+
+<div class="empty" id="empty" hidden>
+  <h2>Nothing wobbling yet</h2>
+  <p>Type, draw or sculpt something in the editor, then press Drop it.</p>
+</div>
+
+<section class="editor glass" id="editor" aria-label="Jelly editor">
+  <div class="top" id="dragbar">
+    <button class="btn icon grip" id="grip" aria-label="Move editor. Drag it, or use the arrow keys." title="Drag to move"><i class="ph ph-dots-six-vertical"></i></button>
+    <div class="seg" role="tablist" aria-label="Input mode" id="modeTabs">
+      <button role="tab" id="tab-type" aria-selected="true" aria-controls="pane-type" data-mode="type"><i class="ph ph-text-aa"></i>Type</button>
+      <button role="tab" id="tab-draw" aria-selected="false" aria-controls="pane-draw" data-mode="draw" tabindex="-1"><i class="ph ph-pencil-simple"></i>Draw</button>
+      <button role="tab" id="tab-sculpt" aria-selected="false" aria-controls="pane-sculpt" data-mode="sculpt" tabindex="-1"><i class="ph ph-cube"></i>Sculpt</button>
+    </div>
+    <button class="btn icon" id="closeEditor" aria-label="Close editor" title="Close editor (Esc)"><i class="ph ph-x"></i></button>
+  </div>
+
+  <div class="pane" id="pane-type" role="tabpanel" aria-labelledby="tab-type">
+    <label class="lbl" for="text">Text</label>
+    <input id="text" type="text" maxlength="48" placeholder="Try: wobble" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <span class="lbl" id="split-lbl">One jelly per</span>
+      <div class="seg small" role="radiogroup" aria-labelledby="split-lbl" id="split">
+        <button role="radio" aria-checked="true" data-value="letters">Letter</button>
+        <button role="radio" aria-checked="false" data-value="words" tabindex="-1">Word</button>
+      </div>
+    </div>
+    <span class="lbl" id="font-lbl">Font</span>
+    <div class="fonts" role="radiogroup" aria-labelledby="font-lbl" id="fonts"></div>
+    <p class="err" id="err-type" role="alert"></p>
+  </div>
+
+  <div class="pane" id="pane-draw" role="tabpanel" aria-labelledby="tab-draw" hidden>
+    <span class="lbl" id="pad-lbl">Sketch pad</span>
+    <div class="padwrap">
+      <canvas id="pad" aria-labelledby="pad-lbl" tabindex="0"></canvas>
+      <div class="padhint" id="padhint">Draw here. Closed loops keep their holes.</div>
+    </div>
+    <div class="padtools">
+      <label for="brush">Thickness</label>
+      <input type="range" id="brush" min="10" max="44" value="22">
+      <button class="btn" id="undo"><i class="ph ph-arrow-counter-clockwise"></i>Undo</button>
+      <button class="btn" id="clearPad"><i class="ph ph-eraser"></i>Clear</button>
+    </div>
+    <p class="err" id="err-draw" role="alert"></p>
+  </div>
+
+  <div class="pane" id="pane-sculpt" role="tabpanel" aria-labelledby="tab-sculpt" hidden>
+    <span class="lbl" id="sculpt-lbl">Sculpt in 3D</span>
+    <div class="padwrap">
+      <canvas id="sculpt" aria-labelledby="sculpt-lbl"></canvas>
+      <div class="padhint low" id="sculpthint">Drag on the blob to sculpt it. Drag beside it to turn it.</div>
+    </div>
+    <div class="padtools">
+      <div class="seg small" role="radiogroup" aria-label="Sculpt tool" id="stool">
+        <button role="radio" aria-checked="true" data-value="pull"><i class="ph ph-hand-grabbing"></i>Pull</button>
+        <button role="radio" aria-checked="false" data-value="inflate" tabindex="-1"><i class="ph ph-arrows-out"></i>Inflate</button>
+        <button role="radio" aria-checked="false" data-value="dent" tabindex="-1"><i class="ph ph-arrows-in"></i>Dent</button>
+        <button role="radio" aria-checked="false" data-value="smooth" tabindex="-1"><i class="ph ph-wind"></i>Smooth</button>
+      </div>
+      <button class="btn" id="sMirror" aria-pressed="true" title="Mirror strokes left and right"><i class="ph ph-flip-horizontal"></i>Mirror</button>
+    </div>
+    <div class="padtools">
+      <label for="sBrush">Brush</label>
+      <input type="range" id="sBrush" min="0.2" max="0.9" step="0.05" value="0.45">
+      <button class="btn" id="sUndo"><i class="ph ph-arrow-counter-clockwise"></i>Undo</button>
+    </div>
+    <div class="padtools">
+      <span class="lbl">Start from</span>
+      <button class="btn" data-base="sphere"><i class="ph ph-circle"></i>Blob</button>
+      <button class="btn" data-base="donut"><i class="ph ph-circle-notch"></i>Donut</button>
+      <button class="btn" data-base="pillow"><i class="ph ph-square"></i>Pillow</button>
+    </div>
+    <p class="err" id="err-sculpt" role="alert"></p>
+  </div>
+
+  <div class="foot">
+    <div class="swatches" id="swatches" role="radiogroup" aria-label="Jelly color"></div>
+    <button class="primary" id="drop"><i class="ph ph-drop"></i>Drop it</button>
+  </div>
+</section>
+
+<button class="launcher glass" id="launcher" hidden aria-label="Open editor" title="Open editor"><i class="ph ph-pencil-simple-line"></i></button>
+
+<noscript><p style="position:fixed;inset:auto 0 50% 0;text-align:center">Jelly Box needs JavaScript to wobble.</p></noscript>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+} }
+</script>
+<script>
+  // Error state if the 3D engine can't start (offline, blocked CDN, or no WebGL).
+  setTimeout(() => {
+    if (window.__jellyReady) return;
+    const e = document.getElementById('empty');
+    e.hidden = false;
+    e.querySelector('h2').textContent = 'The 3D engine did not load';
+    e.querySelector('p').textContent = 'Jelly Box needs WebGL and an internet connection the first time it opens. Check both, then reload.';
+  }, 8000);
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+(() => {
+'use strict';
+
+/* ---------- setup ---------- */
+const stage = document.getElementById('stage');
+let W = 0, H = 0, DPR = 1;
+const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+const reduceMQ = matchMedia('(prefers-reduced-motion: reduce)');
+let dark = darkMQ.matches, reduce = reduceMQ.matches;
+darkMQ.addEventListener && darkMQ.addEventListener('change', e => { dark = e.matches; });
+reduceMQ.addEventListener && reduceMQ.addEventListener('change', e => { reduce = e.matches; });
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- constants ---------- */
+const SUB = 6;                 // physics substeps per 60Hz frame
+const DT = 1 / 60;
+const SDT = DT / SUB;
+const GRAV = 2300;             // px/s^2
+const MAXV = 16;               // max displacement per substep (keeps fast throws from tunnelling)
+const MAX_BODIES = 90;
+const SPACING = 10;            // target outline point spacing (px)
+const CEIL = -2400;
+const HUES = [350, 20, 46, 138, 186, 214, 266, 318];
+
+let gravityOn = true;
+const bodies = [];
+const particles = [];
+
+/* ---------- soft body ---------- */
+let seq = 0;
+class Jelly {
+  constructor(outer, holes, hue) {
+    this.id = seq++;
+    this.hue = hue;
+    const n = outer.length;
+    const rings = [{ s: 0, l: n }];
+    let all = outer.slice();
+    for (const h of holes) { rings.push({ s: all.length, l: h.length }); all = all.concat(h); }
+    const c = all.length;
+    this.n = n; this.c = c; this.rings = rings;
+    this.x = new Float64Array(c); this.y = new Float64Array(c);
+    this.px = new Float64Array(c); this.py = new Float64Array(c);
+    this.rx = new Float64Array(c); this.ry = new Float64Array(c);
+    this.rest = new Float64Array(c);
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { cx += outer[i][0]; cy += outer[i][1]; }
+    cx /= n; cy /= n;
+    for (let i = 0; i < c; i++) {
+      const X = all[i][0], Y = all[i][1];
+      this.x[i] = this.px[i] = X; this.y[i] = this.py[i] = Y;
+      this.rx[i] = X - cx; this.ry[i] = Y - cy;
+    }
+    for (const r of rings) for (let k = 0; k < r.l; k++) {
+      const i = r.s + k, j = r.s + (k + 1) % r.l;
+      this.rest[i] = Math.hypot(this.x[j] - this.x[i], this.y[j] - this.y[i]);
+    }
+    this.restArea = ringArea(this.x, this.y, 0, n);
+    let mr = 0;
+    for (let i = 0; i < n; i++) mr = Math.max(mr, Math.hypot(this.rx[i], this.ry[i]));
+    this.size = mr;
+    this.per = 0;
+    for (let i = 0; i < n; i++) this.per += this.rest[i];
+    // hard cap on how far any point may stray from the rigid rest shape
+    this.maxDev = Math.max(7, Math.min(26, mr * 0.2));
+    this.cx = cx; this.cy = cy; this.ang = 0;
+    this.minx = 0; this.miny = 0; this.maxx = 0; this.maxy = 0;
+    this.pop = -1;
+    this.bbox();
+  }
+  bbox() {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    const x = this.x, y = this.y;
+    for (let i = 0; i < this.n; i++) {
+      if (x[i] < a) a = x[i]; if (x[i] > c) c = x[i];
+      if (y[i] < b) b = y[i]; if (y[i] > d) d = y[i];
+    }
+    this.minx = a; this.miny = b; this.maxx = c; this.maxy = d;
+  }
+  contains(px, py) {
+    if (px < this.minx || px > this.maxx || py < this.miny || py > this.maxy) return false;
+    return pointInRing(this.x, this.y, this.n, px, py);
+  }
+}
+
+function ringArea(x, y, s, l) {
+  let a = 0;
+  for (let k = 0; k < l; k++) {
+    const i = s + k, j = s + (k + 1) % l;
+    a += x[i] * y[j] - x[j] * y[i];
+  }
+  return a * 0.5;
+}
+
+function pointInRing(x, y, n, px, py) {
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    if ((y[i] > py) !== (y[j] > py) &&
+        px < (x[j] - x[i]) * (py - y[i]) / (y[j] - y[i]) + x[i]) inside = !inside;
+  }
+  return inside;
+}
+
+// Even-odd test across every ring, so holes count as empty space.
+function insideBody(B, X, Y) {
+  const x = B.x, y = B.y;
+  let inside = false;
+  for (const r of B.rings) {
+    const s = r.s, e = r.s + r.l;
+    for (let i = s, j = e - 1; i < e; j = i++) {
+      if ((y[i] > Y) !== (y[j] > Y) &&
+          X < (x[j] - x[i]) * (Y - y[i]) / (y[j] - y[i]) + x[i]) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/* ---------- physics ---------- */
+function integrate(b, g, damp) {
+  const x = b.x, y = b.y, px = b.px, py = b.py;
+  for (let i = 0; i < b.c; i++) {
+    let vx = (x[i] - px[i]) * damp, vy = (y[i] - py[i]) * damp;
+    const v2 = vx * vx + vy * vy;
+    if (v2 > MAXV * MAXV) { const s = MAXV / Math.sqrt(v2); vx *= s; vy *= s; }
+    px[i] = x[i]; py[i] = y[i];
+    x[i] += vx; y[i] += vy + g;
+  }
+}
+
+function constrain(b, K) {
+  const x = b.x, y = b.y, rx = b.rx, ry = b.ry, n = b.n;
+  // shape matching: best-fit rigid frame of the outer ring
+  let cx = 0, cy = 0;
+  for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; }
+  cx /= n; cy /= n;
+  let sa = 0, ca = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - cx, dy = y[i] - cy;
+    sa += rx[i] * dy - ry[i] * dx;
+    ca += rx[i] * dx + ry[i] * dy;
+  }
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(sa) || !Number.isFinite(ca)) {
+    // numerical blow-up: rebuild the jelly at its last good pose, at rest
+    const c0 = Math.cos(b.ang), s0 = Math.sin(b.ang);
+    for (let i = 0; i < b.c; i++) {
+      x[i] = b.px[i] = b.cx + c0 * rx[i] - s0 * ry[i];
+      y[i] = b.py[i] = b.cy + s0 * rx[i] + c0 * ry[i];
+    }
+    return;
+  }
+  const ang = Math.atan2(sa, ca), c = Math.cos(ang), s = Math.sin(ang);
+  b.cx = cx; b.cy = cy; b.ang = ang;
+  for (let i = 0; i < b.c; i++) {
+    const k = i < n ? K : K * 2.2;
+    const gx = cx + c * rx[i] - s * ry[i], gy = cy + s * rx[i] + c * ry[i];
+    x[i] += (gx - x[i]) * k; y[i] += (gy - y[i]) * k;
+  }
+  // neighbour springs keep the skin even
+  const ES = 0.28;
+  for (const r of b.rings) for (let k = 0; k < r.l; k++) {
+    const i = r.s + k, j = r.s + (k + 1) % r.l;
+    const dx = x[j] - x[i], dy = y[j] - y[i];
+    const d = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+    const f = (d - b.rest[i]) / d * 0.5 * ES;
+    x[i] += dx * f; y[i] += dy * f; x[j] -= dx * f; y[j] -= dy * f;
+  }
+  // area preservation: squash one side and it bulges elsewhere
+  // (skipped when the outline is tangled, where signed area lies and would inflate it into a balloon)
+  const A = ringArea(x, y, 0, n), ratio = A / b.restArea;
+  if (ratio > 0.55 && ratio < 1.6) {
+    let push = (b.restArea - A) / b.per * 0.6;
+    push = push < -0.8 ? -0.8 : push > 0.8 ? 0.8 : push;
+    if (Math.abs(push) > 1e-4) {
+      for (let i = 0; i < n; i++) {
+        const p = (i - 1 + n) % n, q = (i + 1) % n;
+        const tx = x[q] - x[p], ty = y[q] - y[p];
+        const tl = Math.sqrt(tx * tx + ty * ty) || 1e-6;
+        x[i] += ty / tl * push; y[i] += -tx / tl * push;
+      }
+    }
+  }
+  // deformation limit: squishy, but it can never crumple past this
+  const lim = b.maxDev, lim2 = lim * lim;
+  for (let i = 0; i < b.c; i++) {
+    const gx = cx + c * rx[i] - s * ry[i], gy = cy + s * rx[i] + c * ry[i];
+    const dx = x[i] - gx, dy = y[i] - gy, d2 = dx * dx + dy * dy;
+    if (d2 > lim2) {
+      const f = lim / Math.sqrt(d2);
+      x[i] = gx + dx * f; y[i] = gy + dy * f;
+    }
+  }
+}
+
+const MAX_PUSH = 10;   // px per substep; deep overlaps resolve over several substeps instead of exploding
+function collide(A, B) {
+  const ax = A.x, ay = A.y, bx = B.x, by = B.y;
+  const FR = 0.14;
+  for (let i = 0; i < A.n; i++) {
+    const X = ax[i], Y = ay[i];
+    if (X < B.minx || X > B.maxx || Y < B.miny || Y > B.maxy) continue;
+    if (!insideBody(B, X, Y)) continue;
+    // nearest edge of B, on any ring (holes included)
+    let best = Infinity, bj = 0, bk = 0, bt = 0, qx = 0, qy = 0;
+    for (const r of B.rings) {
+      const e = r.s + r.l;
+      for (let j = r.s; j < e; j++) {
+        const k = j + 1 === e ? r.s : j + 1;
+        const ex = bx[k] - bx[j], ey = by[k] - by[j];
+        const l2 = ex * ex + ey * ey || 1e-9;
+        let t = ((X - bx[j]) * ex + (Y - by[j]) * ey) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const cx = bx[j] + ex * t, cy = by[j] + ey * t;
+        const d2 = (cx - X) * (cx - X) + (cy - Y) * (cy - Y);
+        if (d2 < best) { best = d2; bj = j; bk = k; bt = t; qx = cx; qy = cy; }
+      }
+    }
+    const k = bk;
+    let dx = qx - X, dy = qy - Y;
+    let dl = Math.sqrt(dx * dx + dy * dy);
+    if (dl < 1e-6) continue;
+    if (dl > MAX_PUSH) { const f = MAX_PUSH / dl; dx *= f; dy *= f; dl = MAX_PUSH; }
+    const w0 = 1 - bt, w1 = bt, norm = 0.5 / (w0 * w0 + w1 * w1);
+    ax[i] += dx * 0.5; ay[i] += dy * 0.5;
+    bx[bj] -= dx * norm * w0; by[bj] -= dy * norm * w0;
+    bx[k] -= dx * norm * w1; by[k] -= dy * norm * w1;
+    // tangential friction
+    const nx = dx / dl, ny = dy / dl;
+    const rvx = (ax[i] - A.px[i]) - (w0 * (bx[bj] - B.px[bj]) + w1 * (bx[k] - B.px[k]));
+    const rvy = (ay[i] - A.py[i]) - (w0 * (by[bj] - B.py[bj]) + w1 * (by[k] - B.py[k]));
+    const vn = rvx * nx + rvy * ny;
+    const tx = (rvx - vn * nx) * FR, ty = (rvy - vn * ny) * FR;
+    A.px[i] += tx * 0.5; A.py[i] += ty * 0.5;
+    B.px[bj] -= tx * 0.5 * w0; B.py[bj] -= ty * 0.5 * w0;
+    B.px[k] -= tx * 0.5 * w1; B.py[k] -= ty * 0.5 * w1;
+  }
+}
+
+function walls(b) {
+  const x = b.x, y = b.y, px = b.px, py = b.py;
+  const BOUNCE = 0.25, FRIC = 0.82;
+  for (let i = 0; i < b.n; i++) {
+    const vx = x[i] - px[i], vy = y[i] - py[i];
+    if (y[i] > H) { y[i] = H; py[i] = H + vy * BOUNCE; px[i] = x[i] - vx * FRIC; }
+    else if (y[i] < CEIL) { y[i] = CEIL; py[i] = CEIL + vy * BOUNCE; }
+    if (x[i] < 0) { x[i] = 0; px[i] = vx * BOUNCE; py[i] = y[i] - vy * FRIC; }
+    else if (x[i] > W) { x[i] = W; px[i] = W + vx * BOUNCE; py[i] = y[i] - vy * FRIC; }
+  }
+}
+
+/* ---------- grabbing ---------- */
+const grabs = new Map();   // pointerId -> grab
+
+function startGrab(pid, b, mx, my) {
+  const dx = mx - b.cx, dy = my - b.cy, c = Math.cos(b.ang), s = Math.sin(b.ang);
+  const lx = c * dx + s * dy, ly = -s * dx + c * dy;
+  const sig = Math.max(30, b.size * 0.45), inv = 1 / (2 * sig * sig);
+  const w = new Float64Array(b.c);
+  for (let i = 0; i < b.c; i++) {
+    const ddx = b.rx[i] - lx, ddy = b.ry[i] - ly;
+    w[i] = 0.2 + 0.8 * Math.exp(-(ddx * ddx + ddy * ddy) * inv);
+  }
+  grabs.set(pid, { b, lx, ly, mx, my, w });
+  // grabbed jelly renders on top
+  const idx = bodies.indexOf(b);
+  if (idx >= 0) { bodies.splice(idx, 1); bodies.push(b); }
+}
+
+function applyGrabs() {
+  for (const g of grabs.values()) {
+    const b = g.b;
+    const c = Math.cos(b.ang), s = Math.sin(b.ang);
+    const hx = b.cx + c * g.lx - s * g.ly, hy = b.cy + s * g.lx + c * g.ly;
+    const dx = g.mx - hx, dy = g.my - hy;
+    const GK = 0.075;
+    for (let i = 0; i < b.c; i++) {
+      const w = g.w[i] * GK;
+      b.x[i] += dx * w; b.y[i] += dy * w;
+      // light damping while held so it doesn't orbit the cursor
+      b.px[i] += (b.x[i] - b.px[i]) * 0.04 * g.w[i];
+      b.py[i] += (b.y[i] - b.py[i]) * 0.04 * g.w[i];
+    }
+  }
+}
+
+function substep() {
+  const g = gravityOn ? GRAV * SDT * SDT : 0;
+  const damp = gravityOn ? 0.9994 : 0.9965;
+  const K = reduce ? 0.14 : 0.065;
+  const nb = bodies.length;
+  for (let i = 0; i < nb; i++) integrate(bodies[i], g, damp);
+  for (let i = 0; i < nb; i++) constrain(bodies[i], K);
+  if (grabs.size) applyGrabs();
+  for (let i = 0; i < nb; i++) bodies[i].bbox();
+  skinContacts();
+  for (let i = 0; i < nb; i++) {
+    const a = bodies[i];
+    if (a.pop >= 0) continue;
+    for (let j = i + 1; j < nb; j++) {
+      const b = bodies[j];
+      if (b.pop >= 0) continue;
+      if (a.maxx < b.minx || a.minx > b.maxx || a.maxy < b.miny || a.miny > b.maxy) continue;
+      collide(a, b); collide(b, a);
+    }
+  }
+  for (let i = 0; i < nb; i++) walls(bodies[i]);
+}
+
+/* ---------- skin contacts ----------
+   Every outline point is a small ball. Neighbouring balls overlap into a continuous skin,
+   so thin strokes can't slip between another jelly's points and interlock. */
+const SKIN_R = 4.5, SKIN_D = SKIN_R * 2, SKIN_D2 = SKIN_D * SKIN_D;
+const CELL = 10;
+let gridCols = 0, gridRows = 0, gridHead = new Int32Array(0);
+let pBody = new Int32Array(0), pIdx = new Int32Array(0), pNext = new Int32Array(0), pCell = new Int32Array(0);
+
+function skinContacts() {
+  const nb = bodies.length;
+  let total = 0;
+  for (let i = 0; i < nb; i++) if (bodies[i].pop < 0) total += bodies[i].c;
+  if (pBody.length < total) {
+    const cap = total * 2;
+    pBody = new Int32Array(cap); pIdx = new Int32Array(cap); pNext = new Int32Array(cap); pCell = new Int32Array(cap);
+  }
+  const cols = Math.floor(W / CELL) + 3, rows = Math.floor((H - CEIL) / CELL) + 3;
+  if (cols !== gridCols || rows !== gridRows) { gridCols = cols; gridRows = rows; gridHead = new Int32Array(cols * rows); }
+  gridHead.fill(-1);
+  let p = 0;
+  for (let bi = 0; bi < nb; bi++) {
+    const b = bodies[bi];
+    if (b.pop >= 0) continue;
+    for (let i = 0; i < b.c; i++, p++) {
+      let gx = Math.floor(b.x[i] / CELL) + 1, gy = Math.floor((b.y[i] - CEIL) / CELL) + 1;
+      gx = gx < 0 ? 0 : gx >= cols ? cols - 1 : gx;
+      gy = gy < 0 ? 0 : gy >= rows ? rows - 1 : gy;
+      const cell = gy * cols + gx;
+      pBody[p] = bi; pIdx[p] = i; pCell[p] = cell;
+      pNext[p] = gridHead[cell]; gridHead[cell] = p;
+    }
+  }
+  const FR = 0.12;
+  for (let a = 0; a < p; a++) {
+    const A = bodies[pBody[a]], i = pIdx[a], ab = pBody[a];
+    const cell = pCell[a], gx = cell % cols, gy = (cell / cols) | 0;
+    for (let oy = -1; oy <= 1; oy++) {
+      const yy = gy + oy;
+      if (yy < 0 || yy >= rows) continue;
+      for (let ox = -1; ox <= 1; ox++) {
+        const xx = gx + ox;
+        if (xx < 0 || xx >= cols) continue;
+        for (let q = gridHead[yy * cols + xx]; q !== -1; q = pNext[q]) {
+          if (q <= a || pBody[q] === ab) continue;
+          const B = bodies[pBody[q]], j = pIdx[q];
+          const dx = B.x[j] - A.x[i], dy = B.y[j] - A.y[i];
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= SKIN_D2 || d2 < 1e-9) continue;
+          const d = Math.sqrt(d2), o = (SKIN_D - d) * 0.5 / d;
+          A.x[i] -= dx * o; A.y[i] -= dy * o;
+          B.x[j] += dx * o; B.y[j] += dy * o;
+          // tangential friction so piles don't slide like soap
+          const nx = dx / d, ny = dy / d;
+          const rvx = (A.x[i] - A.px[i]) - (B.x[j] - B.px[j]);
+          const rvy = (A.y[i] - A.py[i]) - (B.y[j] - B.py[j]);
+          const vn = rvx * nx + rvy * ny;
+          const tx = (rvx - vn * nx) * FR * 0.5, ty = (rvy - vn * ny) * FR * 0.5;
+          A.px[i] += tx; A.py[i] += ty; B.px[j] -= tx; B.py[j] -= ty;
+        }
+      }
+    }
+  }
+}
+
+/* ---------- raster -> outlines ---------- */
+const NDX = [-1, -1, 0, 1, 1, 1, 0, -1];
+const NDY = [0, -1, -1, -1, 0, 1, 1, 1];
+const DIRIDX = new Int8Array(9);
+for (let k = 0; k < 8; k++) DIRIDX[(NDX[k] + 1) * 3 + (NDY[k] + 1)] = k;
+
+// Moore-neighbour boundary trace, clockwise on screen.
+function traceBoundary(inside, sx, sy, maxIter) {
+  const pts = [[sx, sy]];
+  let cx = sx, cy = sy, bx = sx - 1, by = sy;
+  for (let it = 0; it < maxIter; it++) {
+    const i = DIRIDX[(bx - cx + 1) * 3 + (by - cy + 1)];
+    let nx = 0, ny = 0, found = false;
+    for (let k = 1; k <= 8; k++) {
+      const j = (i + k) & 7;
+      nx = cx + NDX[j]; ny = cy + NDY[j];
+      if (inside(nx, ny)) {
+        const pj = (j + 7) & 7;
+        bx = cx + NDX[pj]; by = cy + NDY[pj];
+        found = true; break;
+      }
+    }
+    if (!found) break;
+    if (it > 0 && cx === sx && cy === sy && pts.length > 1 && nx === pts[1][0] && ny === pts[1][1]) break;
+    cx = nx; cy = ny;
+    if (!(cx === sx && cy === sy)) pts.push([cx, cy]);
+  }
+  return pts;
+}
+
+function flood(grid, lab, gw, gh, start, L, match, eight, onNeighbour) {
+  const stack = [start];
+  lab[start] = L;
+  let count = 0;
+  while (stack.length) {
+    const idx = stack.pop();
+    count++;
+    const x = idx % gw, y = (idx / gw) | 0;
+    for (let k = 0; k < 8; k++) {
+      if (!eight && (k & 1)) continue;          // odd dirs are diagonals
+      const nx = x + NDX[k], ny = y + NDY[k];
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+      const ni = ny * gw + nx;
+      if (grid[ni] === match) { if (!lab[ni]) { lab[ni] = L; stack.push(ni); } }
+      else if (onNeighbour) onNeighbour(ni);
+    }
+  }
+  return count;
+}
+
+function extractShapes(cv, cell, maxOuter = 160, maxHole = 80) {
+  const w = cv.width, h = cv.height;
+  const data = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const gw = Math.ceil(w / cell) + 2, gh = Math.ceil(h / cell) + 2;
+  const grid = new Uint8Array(gw * gh);
+  const half = cell >> 1;
+  for (let gy = 1; gy < gh - 1; gy++) {
+    const py = Math.min(h - 1, (gy - 1) * cell + half);
+    for (let gx = 1; gx < gw - 1; gx++) {
+      const px = Math.min(w - 1, (gx - 1) * cell + half);
+      if (data[(py * w + px) * 4 + 3] > 110) grid[gy * gw + gx] = 1;
+    }
+  }
+  // foreground components (8-connected)
+  const lab = new Int32Array(gw * gh);
+  const comps = [];
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === 1 && !lab[i]) {
+      const L = comps.length + 1;
+      const count = flood(grid, lab, gw, gh, i, L, 1, true);
+      comps.push({ L, start: i, count, holes: [] });
+    }
+  }
+  // background components (4-connected); anything not touching the border is a hole
+  const blab = new Int32Array(gw * gh);
+  let bl = 0;
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === 0 && !blab[i]) {
+      const L = ++bl;
+      let owner = 0;
+      const count = flood(grid, blab, gw, gh, i, L, 0, false, ni => { if (!owner) owner = lab[ni]; });
+      // tiny counters become broken bevels, so only holes of a real size are kept
+      if (L > 1 && owner && count >= 20) comps[owner - 1].holes.push({ L, start: i, count });
+    }
+  }
+  const toPx = p => [((p[0] - 1) + 0.5) * cell, ((p[1] - 1) + 0.5) * cell];
+  const maxIter = gw * gh * 2;
+  const shapes = [];
+  for (const c of comps) {
+    if (c.count < 14) continue;
+    const sx = c.start % gw, sy = (c.start / gw) | 0;
+    const raw = traceBoundary((x, y) => lab[y * gw + x] === c.L, sx, sy, maxIter).map(toPx);
+    let outer = resample(raw, SPACING, 10, maxOuter);
+    if (!outer) continue;
+    outer = smooth(outer, 2);
+    if (signedArea(outer) < 0) outer.reverse();
+    const holes = [];
+    for (const hcomp of c.holes) {
+      const hx = hcomp.start % gw, hy = (hcomp.start / gw) | 0;
+      const hr = traceBoundary((x, y) => blab[y * gw + x] === hcomp.L, hx, hy, maxIter).map(toPx);
+      let ring = resample(hr, SPACING, 8, maxHole);
+      if (ring) holes.push(smooth(ring, 2));
+    }
+    shapes.push({ outer, holes });
+  }
+  return shapes;
+}
+
+function resample(pts, spacing, minN, maxN) {
+  const m = pts.length;
+  if (m < 3) return null;
+  const cum = new Float64Array(m + 1);
+  for (let i = 0; i < m; i++) {
+    const a = pts[i], b = pts[(i + 1) % m];
+    cum[i + 1] = cum[i] + Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  const P = cum[m];
+  if (P < spacing * 3) return null;
+  const N = Math.max(minN, Math.min(maxN, Math.round(P / spacing)));
+  const step = P / N, out = [];
+  let seg = 0;
+  for (let k = 0; k < N; k++) {
+    const t = k * step;
+    while (seg < m - 1 && cum[seg + 1] < t) seg++;
+    const a = pts[seg], b = pts[(seg + 1) % m];
+    const sl = cum[seg + 1] - cum[seg] || 1;
+    const u = (t - cum[seg]) / sl;
+    out.push([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]);
+  }
+  return out;
+}
+
+function smooth(pts, iters) {
+  let p = pts;
+  for (let it = 0; it < iters; it++) {
+    const n = p.length, q = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = p[(i - 1 + n) % n], b = p[i], c = p[(i + 1) % n];
+      q[i] = [a[0] * 0.25 + b[0] * 0.5 + c[0] * 0.25, a[1] * 0.25 + b[1] * 0.5 + c[1] * 0.25];
+    }
+    p = q;
+  }
+  return p;
+}
+
+function signedArea(p) {
+  let a = 0;
+  for (let i = 0; i < p.length; i++) {
+    const b = p[(i + 1) % p.length];
+    a += p[i][0] * b[1] - b[0] * p[i][1];
+  }
+  return a * 0.5;
+}
+
+/* ---------- spawning ---------- */
+let colorMode = 'mix';       // 'mix' or a hue number
+let hueCursor = Math.floor(Math.random() * HUES.length);
+
+function pickHue(i) {
+  if (colorMode === 'mix') return HUES[(hueCursor + i) % HUES.length] + (Math.random() * 10 - 5);
+  return colorMode + (Math.random() * 12 - 6);
+}
+
+function spawnShapes(shapes) {
+  if (!shapes.length) return 0;
+  shapes.sort((a, b) => minX(a.outer) - minX(b.outer));
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of shapes) for (const p of s.outer) {
+    if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+    if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+  }
+  const w = x1 - x0, h = y1 - y0;
+  const ox = W / 2 - (x0 + x1) / 2 + (Math.random() * 2 - 1) * Math.max(0, (W - w) * 0.18);
+  const left = ox + x0, right = ox + x1;
+  // land above whatever is already piled up underneath
+  let top = H;
+  for (const b of bodies) if (b.pop < 0 && b.maxx > left && b.minx < right) top = Math.min(top, b.miny);
+  const targetTop = Math.max(CEIL + 50, Math.min(70, top - h - 40));
+  const oy = targetTop - y0;
+  shapes.forEach((s, i) => {
+    const outer = s.outer.map(p => [p[0] + ox, p[1] + oy]);
+    const holes = s.holes.map(r => r.map(p => [p[0] + ox, p[1] + oy]));
+    const b = new Jelly(outer, holes, pickHue(i));
+    build3D(b, s.mesh ? { pos: s.mesh.pos, index: s.mesh.index, ox, oy } : null);
+    // small random spin + drop so letters tumble a bit
+    const spin = (Math.random() * 2 - 1) * 0.002, vy = 0.5 + Math.random();
+    for (let k = 0; k < b.c; k++) {
+      b.px[k] = b.x[k] + (b.y[k] - b.cy) * spin;
+      b.py[k] = b.y[k] - vy - (b.x[k] - b.cx) * spin;
+    }
+    bodies.push(b);
+  });
+  hueCursor = (hueCursor + shapes.length) % HUES.length;
+  let alive = bodies.filter(b => b.pop < 0);
+  while (alive.length > MAX_BODIES) { popBody(alive.shift()); }
+  updateEmpty();
+  return shapes.length;
+}
+const minX = pts => pts.reduce((m, p) => Math.min(m, p[0]), Infinity);
+
+const JELLY_FONT = '"SF Pro Rounded", ui-rounded, "Arial Rounded MT Bold", "Nunito", "Varela Round", system-ui, sans-serif';
+
+const FONTS = [
+  { id: 'rounded', label: 'Rounded', family: null, weight: 900 },
+  { id: 'fredoka', label: 'Fredoka', family: 'Fredoka', weight: 700 },
+  { id: 'titan', label: 'Titan One', family: 'Titan One', weight: 400 },
+  { id: 'chewy', label: 'Chewy', family: 'Chewy', weight: 400 },
+  { id: 'pacifico', label: 'Pacifico', family: 'Pacifico', weight: 400 },
+  { id: 'bungee', label: 'Bungee', family: 'Bungee', weight: 400 },
+  { id: 'lobster', label: 'Lobster', family: 'Lobster', weight: 400 },
+  { id: 'rubik', label: 'Rubik Mono', family: 'Rubik Mono One', weight: 400 },
+];
+const fontCss = f => f.family ? `"${f.family}", ${JELLY_FONT}` : JELLY_FONT;
+
+// Resolves true once the face is usable, false if it could not be loaded (we then fall back).
+async function ensureFont(f) {
+  if (!f.family || !document.fonts) return true;
+  try {
+    const faces = await Promise.race([
+      document.fonts.load(`${f.weight} 100px "${f.family}"`),
+      new Promise(r => setTimeout(() => r(null), 4000)),
+    ]);
+    return !!(faces && faces.length);
+  } catch (_) { return false; }
+}
+
+const outlineArea = s => Math.abs(signedArea(s.outer));
+
+function textToShapes(text, f = FONTS[0], words = false) {
+  const mc = document.createElement('canvas').getContext('2d');
+  const maxW = Math.min(W * 0.86, 1100);
+  let fs = W < 640 ? 100 : 156;
+  // letter mode spaces glyphs apart so each becomes its own jelly; word mode keeps them tight
+  const setFont = c => {
+    c.font = `${f.weight} ${fs}px ${fontCss(f)}`;
+    if ('letterSpacing' in c) c.letterSpacing = (words ? 0 : Math.round(fs * 0.04)) + 'px';
+  };
+  const ws = text.split(/\s+/).filter(Boolean);
+  if (!ws.length) return [];
+  setFont(mc);
+  const longest = () => Math.max(...ws.map(wd => mc.measureText(wd).width));
+  while (fs > 44 && longest() > maxW) { fs -= 6; setFont(mc); }
+  const space = mc.measureText(' ').width;
+  const lines = [];
+  let cur = [], lw = 0;
+  for (const wd of ws) {
+    const ww = mc.measureText(wd).width;
+    if (cur.length && lw + space + ww > maxW) { lines.push({ ws: cur, w: lw }); cur = [wd]; lw = ww; }
+    else { lw = cur.length ? lw + space + ww : ww; cur.push(wd); }
+  }
+  if (cur.length) lines.push({ ws: cur, w: lw });
+  const lineH = fs * 1.12;
+
+  if (!words) {
+    const off = document.createElement('canvas');
+    const c = off.getContext('2d', { willReadFrequently: true });
+    const width = Math.ceil(Math.max(...lines.map(l => l.w)) + fs * 0.6);
+    off.width = width; off.height = Math.ceil(lines.length * lineH + fs * 0.6);
+    setFont(c);
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#000';
+    lines.forEach((l, i) => c.fillText(l.ws.join(' '), width / 2, fs * 0.3 + lineH * (i + 0.5)));
+    return extractShapes(off, 2);
+  }
+
+  const shapes = [];
+  const width = Math.max(...lines.map(l => l.w));
+  lines.forEach((l, li) => {
+    let x = (width - l.w) / 2;
+    const midY = li * lineH + lineH / 2;
+    for (const wd of l.ws) {
+      const ww = mc.measureText(wd).width;
+      const sh = wordShape(wd, ww, fs, setFont);
+      if (sh) {
+        const dx = x - sh.pad, dy = midY - sh.mid;
+        shapes.push({
+          outer: sh.outer.map(p => [p[0] + dx, p[1] + dy]),
+          holes: sh.holes.map(r => r.map(p => [p[0] + dx, p[1] + dy])),
+        });
+      }
+      x += ww + space;
+    }
+  });
+  return shapes;
+}
+
+// One connected outline per word: thicken the glyphs, then bridge any stray pieces
+// (i-dots, open kerning) onto the main body.
+function wordShape(wd, ww, fs, setFont) {
+  const pad = Math.ceil(fs * 0.35);
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil(ww + pad * 2);
+  cv.height = Math.ceil(fs * 1.12 + pad * 2);
+  const c = cv.getContext('2d', { willReadFrequently: true });
+  setFont(c);
+  const mid = cv.height / 2;
+  c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillStyle = c.strokeStyle = '#000';
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.lineWidth = Math.max(4, fs * 0.07);
+  c.fillText(wd, pad, mid);
+  c.strokeText(wd, pad, mid);
+  let shapes = extractShapes(cv, 2, 360, 100);
+  for (let pass = 0; pass < 4 && shapes.length > 1; pass++) {
+    shapes.sort((a, b) => outlineArea(b) - outlineArea(a));
+    const main = shapes[0].outer;
+    c.lineWidth = Math.max(8, fs * 0.12);
+    for (let k = 1; k < shapes.length; k++) {
+      let best = Infinity, a = null, b = null;
+      for (const p of shapes[k].outer) for (const q of main) {
+        const d = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
+        if (d < best) { best = d; a = p; b = q; }
+      }
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    }
+    shapes = extractShapes(cv, 2, 360, 100);
+  }
+  if (!shapes.length) return null;
+  shapes.sort((a, b) => outlineArea(b) - outlineArea(a));
+  return { outer: shapes[0].outer, holes: shapes[0].holes, pad, mid };
+}
+
+
+/* ---------- 3D scene ---------- */
+const FOV = 30;
+const ROOM_DEPTH = 640;
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas: stage, antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  const e = document.getElementById('empty');
+  e.hidden = false;
+  e.querySelector('h2').textContent = 'WebGL is not available';
+  e.querySelector('p').textContent = 'Jelly Box renders real 3D jellies and needs WebGL. Try another browser or enable hardware acceleration.';
+  return;
+}
+window.__jellyReady = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.85;
+
+const camera = new THREE.PerspectiveCamera(FOV, 1, 10, 10000);
+let CAM_D = 1000;
+
+// Room: floor, back wall and side walls with a soft tile pattern, so refraction has something to bend.
+function tileTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 256, 256);
+  g.fillStyle = '#d9dde4';
+  g.fillRect(0, 0, 256, 5); g.fillRect(0, 0, 5, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const TILE = 96;
+const room = {};
+['floor', 'back', 'left', 'right'].forEach(k => {
+  const map = tileTexture();
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ map, roughness: 0.85, metalness: 0 }));
+  m.receiveShadow = true;
+  scene.add(m);
+  room[k] = m;
+});
+room.floor.rotation.x = -Math.PI / 2;
+room.left.rotation.y = Math.PI / 2;
+room.right.rotation.y = -Math.PI / 2;
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x7d8696, 0.75);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 2.4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.intensity = 0.55;
+key.shadow.radius = 5;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 1.5;
+scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0xffffff, 0.9);
+scene.add(rim);
+
+function applyTheme() {
+  const wall = dark ? 0x232937 : 0xe6eaf0;
+  const floorC = dark ? 0x1b202b : 0xd6dce5;
+  room.back.material.color.setHex(wall);
+  room.left.material.color.setHex(wall);
+  room.right.material.color.setHex(wall);
+  room.floor.material.color.setHex(floorC);
+  scene.background = new THREE.Color(wall);
+  hemi.intensity = dark ? 0.6 : 0.75;
+  key.intensity = dark ? 2.2 : 2.4;
+  scene.environmentIntensity = dark ? 0.7 : 0.85;
+  for (const b of bodies) if (b.g) styleMaterial(b.g.mesh.material, b.hue, b.g.T);
+}
+darkMQ.addEventListener && darkMQ.addEventListener('change', applyTheme);
+
+function layout3D() {
+  renderer.setSize(W, H, true);
+  // camera distance chosen so the z = 0 plane maps 1:1 to CSS pixels
+  CAM_D = (H / 2) / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  camera.aspect = W / H;
+  camera.position.set(0, 0, CAM_D);
+  camera.lookAt(0, 0, 0);
+  camera.near = 10; camera.far = CAM_D + ROOM_DEPTH + 4000;
+  camera.updateProjectionMatrix();
+
+  const grow = (CAM_D + ROOM_DEPTH) / CAM_D;
+  const wallH = H * grow * 2.2;
+  const wallY = -H / 2 + wallH / 2;
+  const depth = ROOM_DEPTH + CAM_D;
+  const zMid = (-ROOM_DEPTH + CAM_D) / 2;
+  const set = (m, w, h, x, y, z) => {
+    m.scale.set(w, h, 1); m.position.set(x, y, z);
+    m.material.map.repeat.set(w / TILE, h / TILE);
+    m.material.map.offset.set(0, 0);
+  };
+  set(room.back, W * grow * 1.05, wallH, 0, wallY, -ROOM_DEPTH);
+  set(room.floor, W, depth, 0, -H / 2, zMid);
+  set(room.left, depth, wallH, -W / 2, wallY, zMid);
+  set(room.right, depth, wallH, W / 2, wallY, zMid);
+
+  const S = Math.max(W, H);
+  key.position.set(-W * 0.28, H * 0.95, CAM_D * 0.55);
+  key.target.position.set(0, -H * 0.5, -ROOM_DEPTH * 0.3);
+  const sc = key.shadow.camera;
+  sc.left = -S; sc.right = S; sc.top = S; sc.bottom = -S;
+  sc.near = 10; sc.far = S * 4;
+  sc.updateProjectionMatrix();
+  rim.position.set(W * 0.5, H * 0.2, -ROOM_DEPTH * 0.2);
+}
+window.addEventListener('resize', layout3D);
+layout3D();
+applyTheme();
+
+/* ---------- jelly meshes ---------- */
+function styleMaterial(m, hue, T) {
+  const h = (((hue % 360) + 360) % 360) / 360;
+  // pale surface tint + deep attenuation: thin edges glow, thick cores go rich and saturated
+  m.color.setHSL(h, 1, dark ? 0.8 : 0.72);
+  m.attenuationColor.setHSL(h, 1, dark ? 0.55 : 0.4);
+  m.attenuationDistance = T * (dark ? 1.3 : 0.65);
+  m.thickness = T * 1.25;
+  m.emissive.setHSL(h, 1, dark ? 0.42 : 0.5);
+  m.emissiveIntensity = dark ? 0.32 : 0.02;
+  m.needsUpdate = true;
+}
+function makeMaterial(hue, T) {
+  const m = new THREE.MeshPhysicalMaterial({
+    transmission: 1, roughness: 0.08, ior: 1.38,
+    clearcoat: 1, clearcoatRoughness: 0.04,
+    specularIntensity: 1, envMapIntensity: 1.25,
+  });
+  styleMaterial(m, hue, T);
+  return m;
+}
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const KW = 6;  // soft-body points that influence each mesh vertex
+
+function ringToPath(path, b, r) {
+  const pts = [];
+  for (let k = 0; k < r.l; k++) pts.push(new THREE.Vector2(b.rx[r.s + k], -b.ry[r.s + k]));
+  path.moveTo(pts[0].x, pts[0].y);
+  path.splineThru(pts.slice(1).concat([pts[0]]));
+  return path;
+}
+
+function build3D(b, custom) {
+  let geo, T;
+  if (custom) {
+    // sculpted mesh: vertices arrive in the same canvas space as the traced silhouette
+    const src = custom.pos, arr = new Float32Array(src.length);
+    let z0 = Infinity, z1 = -Infinity;
+    for (let o = 0; o < src.length; o += 3) {
+      arr[o] = src[o] + custom.ox - b.cx;
+      arr[o + 1] = -(src[o + 1] + custom.oy - b.cy);
+      arr[o + 2] = src[o + 2];
+      if (src[o + 2] < z0) z0 = src[o + 2];
+      if (src[o + 2] > z1) z1 = src[o + 2];
+    }
+    geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+    geo.setIndex(new THREE.BufferAttribute(custom.index, 1));
+    geo.computeVertexNormals();
+    T = clamp(z1 - z0, 20, 220);
+  } else {
+    let per = 0, holeA = 0;
+    for (let i = 0; i < b.c; i++) per += b.rest[i];
+    for (let r = 1; r < b.rings.length; r++) holeA += Math.abs(ringArea(b.rx, b.ry, b.rings[r].s, b.rings[r].l));
+    const area = Math.abs(b.restArea) - holeA;
+    const halfW = area / per;            // rough half stroke width
+    // thickness follows stroke weight, so long whole words don't turn into slabs
+    T = clamp(Math.min(b.size * 0.55, halfW * 4.2), 26, 76);
+    const bs = clamp(halfW * 0.55, 2, 10);
+    const SKIN_OUT = 3.5;   // mesh reaches slightly past the outline to cover the collision skin gap
+
+    const shape = ringToPath(new THREE.Shape(), b, b.rings[0]);
+    for (let r = 1; r < b.rings.length; r++) shape.holes.push(ringToPath(new THREE.Path(), b, b.rings[r]));
+    geo = new THREE.ExtrudeGeometry(shape, {
+      depth: T * 0.2, steps: 1,
+      bevelEnabled: true, bevelThickness: T * 0.4, bevelSize: bs, bevelOffset: SKIN_OUT - bs, bevelSegments: 5,
+      curveSegments: b.n < 48 ? 3 : 2,
+    });
+    geo.translate(0, 0, -T * 0.1);
+    geo.deleteAttribute('uv');
+    geo.deleteAttribute('normal');
+    geo.clearGroups();
+    geo = mergeVertices(geo, 1e-3);
+    geo.computeVertexNormals();
+  }
+
+  const pos = geo.attributes.position;
+  pos.setUsage(THREE.DynamicDrawUsage);
+  const nv = pos.count, base = Float32Array.from(pos.array);
+  const idx = new Uint16Array(nv * KW), wts = new Float32Array(nv * KW);
+  const bd = new Float64Array(KW), bi = new Int32Array(KW);
+  for (let v = 0; v < nv; v++) {
+    const qx = base[v * 3], qy = -base[v * 3 + 1];
+    bd.fill(Infinity);
+    for (let j = 0; j < b.c; j++) {
+      const dx = b.rx[j] - qx, dy = b.ry[j] - qy, d = dx * dx + dy * dy;
+      if (d >= bd[KW - 1]) continue;
+      let k = KW - 1;
+      while (k > 0 && bd[k - 1] > d) { bd[k] = bd[k - 1]; bi[k] = bi[k - 1]; k--; }
+      bd[k] = d; bi[k] = j;
+    }
+    let sum = 0;
+    for (let k = 0; k < KW; k++) { const w = 1 / (bd[k] + 30); wts[v * KW + k] = w; idx[v * KW + k] = bi[k]; sum += w; }
+    for (let k = 0; k < KW; k++) wts[v * KW + k] /= sum;
+  }
+
+  const mesh = new THREE.Mesh(geo, makeMaterial(b.hue, T));
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  b.g = {
+    mesh, geo, base, idx, wts, T,
+    ex: new Float32Array(b.c), ey: new Float32Array(b.c), sz: new Float32Array(b.c).fill(1),
+    lx: new Float32Array(b.c), ly: new Float32Array(b.c), dirty: true,
+    zs: 1, zv: 0, tx: 0, ty: 0, tvx: 0, tvy: 0,
+    pcx: b.cx, pcy: b.cy, pvx: 0, pvy: 0,
+  };
+}
+
+function dispose3D(b) {
+  if (!b.g) return;
+  scene.remove(b.g.mesh);
+  b.g.geo.dispose();
+  b.g.mesh.material.dispose();
+  b.g = null;
+}
+
+// Step 1 (every jelly, cheap): re-fit the rigid frame and measure how far the soft shape drifted.
+function measure3D(b) {
+  const g = b.g, x = b.x, y = b.y, n = b.n, rx = b.rx, ry = b.ry;
+  let cx = 0, cy = 0;
+  for (let i = 0; i < n; i++) { cx += x[i]; cy += y[i]; }
+  cx /= n; cy /= n;
+  let sa = 0, ca = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - cx, dy = y[i] - cy;
+    sa += rx[i] * dy - ry[i] * dx; ca += rx[i] * dx + ry[i] * dy;
+  }
+  const ang = Math.atan2(sa, ca), c = Math.cos(ang), s = Math.sin(ang);
+  let moved = g.dirty ? 99 : 0;
+  for (let i = 0; i < b.c; i++) {
+    const dx = x[i] - cx, dy = y[i] - cy;
+    const ex = c * dx + s * dy - rx[i], ey = -s * dx + c * dy - ry[i];
+    g.ex[i] = ex; g.ey[i] = ey;
+    const m = Math.abs(ex - g.lx[i]) + Math.abs(ey - g.ly[i]);
+    if (m > moved) moved = m;
+  }
+  g.cx = cx; g.cy = cy; g.ang = ang; g.moved = moved;
+}
+
+function fastNormals(geo) {
+  const p = geo.attributes.position.array, ix = geo.index.array, nm = geo.attributes.normal.array;
+  nm.fill(0);
+  for (let t = 0; t < ix.length; t += 3) {
+    const a = ix[t] * 3, b = ix[t + 1] * 3, c = ix[t + 2] * 3;
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    nm[a] += nx; nm[a + 1] += ny; nm[a + 2] += nz;
+    nm[b] += nx; nm[b + 1] += ny; nm[b + 2] += nz;
+    nm[c] += nx; nm[c + 1] += ny; nm[c + 2] += nz;
+  }
+  for (let i = 0; i < nm.length; i += 3) {
+    const l = Math.hypot(nm[i], nm[i + 1], nm[i + 2]) || 1;
+    nm[i] /= l; nm[i + 1] /= l; nm[i + 2] /= l;
+  }
+  geo.attributes.normal.needsUpdate = true;
+}
+
+// Step 2 (budgeted): push the soft deformation into the mesh vertices.
+function deform3D(b) {
+  const g = b.g, x = b.x, y = b.y;
+  // edge strain: compressed skin puffs out in depth, stretched skin thins
+  for (const r of b.rings) for (let k = 0; k < r.l; k++) {
+    const i = r.s + k, j = r.s + (k + 1) % r.l, p = r.s + (k - 1 + r.l) % r.l;
+    const l1 = Math.hypot(x[j] - x[i], y[j] - y[i]), l0 = Math.hypot(x[i] - x[p], y[i] - y[p]);
+    g.sz[i] = (b.rest[i] + b.rest[p]) / (l1 + l0 + 1e-6);
+  }
+  const arr = g.geo.attributes.position.array, base = g.base, idx = g.idx, wts = g.wts;
+  const ex = g.ex, ey = g.ey, sz = g.sz;
+  const nv = arr.length / 3;
+  for (let v = 0, o = 0, v3 = 0; v < nv; v++, o += KW, v3 += 3) {
+    let ax = 0, ay = 0, as = 0;
+    for (let k = 0; k < KW; k++) {
+      const j = idx[o + k], w = wts[o + k];
+      ax += w * ex[j]; ay += w * ey[j]; as += w * sz[j];
+    }
+    const zm = clamp(1 + (as - 1) * 1.1, 0.55, 1.7);
+    arr[v3] = base[v3] + ax;
+    arr[v3 + 1] = base[v3 + 1] - ay;
+    arr[v3 + 2] = base[v3 + 2] * zm;
+  }
+  g.geo.attributes.position.needsUpdate = true;
+  fastNormals(g.geo);
+  g.lx.set(ex); g.ly.set(ey);
+  g.dirty = false;
+}
+
+// Step 3 (every jelly): whole-body jiggle and placement. Impacts bulge it in depth, motion makes it lean.
+function pose3D(b) {
+  const g = b.g, cx = g.cx, cy = g.cy;
+  const vx = cx - g.pcx, vy = cy - g.pcy;
+  const jolt = Math.min(30, Math.hypot(vx - g.pvx, vy - g.pvy));
+  g.pcx = cx; g.pcy = cy; g.pvx = vx; g.pvy = vy;
+  if (!reduce) {
+    g.zv += jolt * 0.0045;
+    g.zv += (1 - g.zs) * 0.16; g.zv *= 0.86; g.zs = clamp(g.zs + g.zv, 0.72, 1.4);
+    const tX = clamp(vy * 0.018, -0.45, 0.45), tY = clamp(vx * 0.018, -0.45, 0.45);
+    g.tvx += (tX - g.tx) * 0.1; g.tvx *= 0.84; g.tx += g.tvx;
+    g.tvy += (tY - g.ty) * 0.1; g.tvy *= 0.84; g.ty += g.tvy;
+  } else { g.zs = 1; g.tx = g.ty = 0; }
+
+  const mesh = g.mesh;
+  mesh.position.set(cx - W / 2, H / 2 - cy, 0);
+  mesh.rotation.set(g.tx, g.ty, -g.ang);
+  const squash = 1 + (1 - g.zs) * 0.35;
+  let sc = 1;
+  if (b.pop >= 0) {
+    sc = 1 + 0.35 * b.pop;
+    mesh.material.transparent = true;
+    mesh.material.opacity = 1 - b.pop;
+  }
+  mesh.scale.set(squash * sc, squash * sc, g.zs * sc);
+}
+
+const DEFORM_BUDGET = 14;     // mesh rebuilds per frame; the most-deformed jellies go first
+const DEFORM_EPS = 0.4;       // px of shape drift before a rebuild is worth it
+const queue = [];
+function update3DAll() {
+  queue.length = 0;
+  const held = new Set();
+  for (const gr of grabs.values()) held.add(gr.b);
+  for (const b of bodies) {
+    if (!b.g) continue;
+    measure3D(b);
+    if (held.has(b) && b.g.moved > 0.1) deform3D(b);
+    else if (b.g.moved > DEFORM_EPS) queue.push(b);
+  }
+  if (queue.length > DEFORM_BUDGET) queue.sort((a, c) => c.g.moved - a.g.moved);
+  for (let i = 0; i < queue.length && i < DEFORM_BUDGET; i++) deform3D(queue[i]);
+  for (const b of bodies) if (b.g) pose3D(b);
+}
+
+// Dynamic resolution: trade pixel density for a steady frame rate.
+const MAX_PR = Math.min(1.5, window.devicePixelRatio || 1);
+let pr = Math.min(1.5, MAX_PR), prAcc = 0, prN = 0, prGood = 0;
+renderer.setPixelRatio(pr);
+renderer.transmissionResolutionScale = 0.5;
+function adaptResolution(dt) {
+  prAcc += dt; prN++;
+  if (prN < 45) return;
+  const avg = prAcc / prN;
+  prAcc = 0; prN = 0;
+  if (avg > 1 / 50 && pr > 0.75) {
+    pr = Math.max(0.75, pr - 0.25); prGood = 0;
+    renderer.setPixelRatio(pr); renderer.setSize(W, H, true);
+  } else if (avg < 1 / 57 && pr < MAX_PR) {
+    if (++prGood >= 4) {
+      pr = Math.min(MAX_PR, pr + 0.25); prGood = 0;
+      renderer.setPixelRatio(pr); renderer.setSize(W, H, true);
+    }
+  } else prGood = 0;
+}
+
+/* ---------- popping ---------- */
+const MAX_P = 320;
+const pMesh = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(1, 18, 12),
+  new THREE.MeshPhysicalMaterial({ roughness: 0.12, clearcoat: 1, transmission: 0.55, thickness: 6, ior: 1.33 }),
+  MAX_P
+);
+pMesh.count = 0;
+pMesh.frustumCulled = false;
+pMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+scene.add(pMesh);
+const tmpM = new THREE.Matrix4(), tmpC = new THREE.Color();
+
+function popBody(b) {
+  if (b.pop >= 0) return;
+  b.pop = 0;
+  for (const [pid, g] of grabs) if (g.b === b) grabs.delete(pid);
+  const T = b.g ? b.g.T : 40;
+  const count = Math.min(16, 6 + (b.n >> 3));
+  for (let i = 0; i < count && particles.length < MAX_P; i++) {
+    const k = Math.floor(Math.random() * b.n);
+    const dx = b.x[k] - b.cx, dy = b.y[k] - b.cy, d = Math.hypot(dx, dy) || 1;
+    const sp = 180 + Math.random() * 280;
+    particles.push({
+      x: b.x[k], y: b.y[k], z: (Math.random() - 0.5) * T,
+      vx: dx / d * sp, vy: dy / d * sp - 180, vz: (Math.random() - 0.3) * 320,
+      r: 4 + Math.random() * 7, hue: b.hue, life: 1,
+    });
+  }
+  updateEmpty();
+}
+
+/* ---------- loop ---------- */
+let last = performance.now(), acc = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now; acc += dt;
+  adaptResolution(dt);
+  let steps = 0;
+  while (acc >= DT && steps < 3) { for (let s = 0; s < SUB; s++) substep(); acc -= DT; steps++; }
+  if (steps === 3) acc = 0;
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const b = bodies[i];
+    if (b.pop >= 0) {
+      b.pop += dt / 0.24;
+      if (b.pop >= 1) { dispose3D(b); bodies.splice(i, 1); continue; }
+    }
+  }
+  update3DAll();
+  let pc = 0;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.life -= dt * 1.5;
+    if (p.life <= 0 || p.y > H + 40) { particles.splice(i, 1); continue; }
+  }
+  for (const p of particles) {
+    const r = p.r * (0.35 + 0.65 * p.life);
+    tmpM.makeScale(r, r, r).setPosition(p.x - W / 2, H / 2 - p.y, p.z);
+    pMesh.setMatrixAt(pc, tmpM);
+    pMesh.setColorAt(pc, tmpC.setHSL(((p.hue % 360) + 360) % 360 / 360, 0.9, 0.6));
+    pc++;
+  }
+  pMesh.count = pc;
+  pMesh.instanceMatrix.needsUpdate = true;
+  if (pMesh.instanceColor) pMesh.instanceColor.needsUpdate = true;
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- stage interaction ---------- */
+const emptyEl = document.getElementById('empty');
+function updateEmpty() {
+  const has = bodies.some(b => b.pop < 0);
+  emptyEl.hidden = has;
+  emptyEl.setAttribute('aria-hidden', String(has));
+}
+
+function hitTest(x, y) {
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const b = bodies[i];
+    if (b.pop < 0 && b.contains(x, y)) return b;
+  }
+  return null;
+}
+
+let lastTap = { b: null, t: 0, x: 0, y: 0 };
+stage.addEventListener('pointerdown', e => {
+  const b = hitTest(e.clientX, e.clientY);
+  if (!b) return;
+  const now = performance.now();
+  if (lastTap.b === b && now - lastTap.t < 330 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+    popBody(b); lastTap.b = null; return;
+  }
+  lastTap = { b, t: now, x: e.clientX, y: e.clientY };
+  stage.setPointerCapture(e.pointerId);
+  startGrab(e.pointerId, b, e.clientX, e.clientY);
+  stage.style.cursor = 'grabbing';
+});
+stage.addEventListener('pointermove', e => {
+  const g = grabs.get(e.pointerId);
+  if (g) { g.mx = e.clientX; g.my = e.clientY; return; }
+  if (e.pointerType === 'mouse') stage.style.cursor = hitTest(e.clientX, e.clientY) ? 'grab' : 'default';
+});
+const release = e => {
+  if (grabs.delete(e.pointerId)) stage.style.cursor = 'grab';
+};
+stage.addEventListener('pointerup', release);
+stage.addEventListener('pointercancel', release);
+stage.addEventListener('lostpointercapture', release);
+
+/* ---------- tools ---------- */
+const gravityBtn = document.getElementById('gravity');
+gravityBtn.addEventListener('click', () => {
+  gravityOn = !gravityOn;
+  gravityBtn.setAttribute('aria-pressed', String(gravityOn));
+  if (!gravityOn) nudgeAll(2.5, 4);   // lift-off so zero-g is visible
+});
+function nudgeAll(sx, sy) {
+  for (const b of bodies) {
+    const vx = (Math.random() * 2 - 1) * sx, vy = -(sy * 0.5 + Math.random() * sy);
+    for (let i = 0; i < b.c; i++) {
+      b.px[i] -= vx + (Math.random() - 0.5) * sx * 0.3;
+      b.py[i] -= vy + (Math.random() - 0.5) * sy * 0.3;
+    }
+  }
+}
+document.getElementById('shake').addEventListener('click', () => nudgeAll(reduce ? 3 : 7, reduce ? 6 : 14));
+document.getElementById('clearAll').addEventListener('click', () => {
+  const alive = bodies.filter(b => b.pop < 0);
+  alive.forEach((b, i) => setTimeout(() => { popBody(b); updateEmpty(); }, reduce ? 0 : i * 28));
+});
+
+/* ---------- editor ---------- */
+const editor = document.getElementById('editor');
+const tabs = [...document.querySelectorAll('#modeTabs [role=tab]')];
+const MODES = ['type', 'draw', 'sculpt'];
+const panes = {
+  type: document.getElementById('pane-type'),
+  draw: document.getElementById('pane-draw'),
+  sculpt: document.getElementById('pane-sculpt'),
+};
+let mode = 'type';
+function setMode(m, focus) {
+  mode = m;
+  tabs.forEach(t => {
+    const on = t.dataset.mode === m;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+    if (on && focus) t.focus();
+  });
+  for (const k of MODES) panes[k].hidden = k !== m;
+  if (m === 'draw') sizePad();
+  if (m === 'sculpt' && initSculpt()) resizeSculpt();
+  keepEditorInView();
+}
+tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.mode)));
+document.getElementById('modeTabs').addEventListener('keydown', e => {
+  const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  if (!d) return;
+  e.preventDefault();
+  setMode(MODES[(MODES.indexOf(mode) + d + MODES.length) % MODES.length], true);
+});
+
+// roving-tabindex radio groups (text split, sculpt tool, fonts)
+function radioGroup(container, onPick) {
+  const items = () => [...container.querySelectorAll('[role=radio]')];
+  const pick = (el, focus) => {
+    items().forEach(i => { const on = i === el; i.setAttribute('aria-checked', String(on)); i.tabIndex = on ? 0 : -1; });
+    if (focus) el.focus();
+    onPick(el.dataset.value, el);
+  };
+  container.addEventListener('click', e => { const el = e.target.closest('[role=radio]'); if (el) pick(el); });
+  container.addEventListener('keydown', e => {
+    const d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const list = items(), i = list.findIndex(x => x.getAttribute('aria-checked') === 'true');
+    pick(list[(i + d + list.length) % list.length], true);
+  });
+}
+
+// colour swatches
+const swWrap = document.getElementById('swatches');
+const swatchDefs = [{ v: 'mix', label: 'Mixed colors' }].concat(HUES.map(h => ({ v: h, label: `Hue ${h}` })));
+const NAMES = { 350: 'Cherry', 20: 'Tangerine', 46: 'Lemon', 138: 'Lime', 186: 'Aqua', 214: 'Blueberry', 266: 'Grape', 318: 'Bubblegum' };
+swatchDefs.forEach(d => {
+  const s = document.createElement('button');
+  s.className = 'sw' + (d.v === 'mix' ? ' mix' : '');
+  s.setAttribute('role', 'radio');
+  s.setAttribute('aria-checked', String(d.v === colorMode));
+  s.setAttribute('aria-label', d.v === 'mix' ? d.label : NAMES[d.v]);
+  s.title = d.v === 'mix' ? 'Mixed' : NAMES[d.v];
+  if (d.v !== 'mix') s.style.background = `hsl(${d.v},88%,60%)`;
+  s.addEventListener('click', () => {
+    colorMode = d.v;
+    [...swWrap.children].forEach(c => c.setAttribute('aria-checked', String(c === s)));
+    if (SC) styleSculpt();
+  });
+  swWrap.appendChild(s);
+});
+
+// text
+const textIn = document.getElementById('text');
+const errType = document.getElementById('err-type');
+let font = FONTS[0], splitWords = false;
+textIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); drop(); } });
+textIn.addEventListener('input', () => { errType.textContent = ''; });
+radioGroup(document.getElementById('split'), v => { splitWords = v === 'words'; });
+const fontWrap = document.getElementById('fonts');
+FONTS.forEach((f, i) => {
+  const b = document.createElement('button');
+  b.className = 'font-pill';
+  b.setAttribute('role', 'radio');
+  b.setAttribute('aria-checked', String(i === 0));
+  b.tabIndex = i === 0 ? 0 : -1;
+  b.dataset.value = f.id;
+  b.textContent = f.label;
+  b.style.fontFamily = fontCss(f);
+  b.style.fontWeight = f.weight;
+  fontWrap.appendChild(b);
+});
+radioGroup(fontWrap, id => {
+  font = FONTS.find(f => f.id === id) || FONTS[0];
+  textIn.style.fontFamily = fontCss(font);
+  textIn.style.fontWeight = font.weight;
+  errType.textContent = '';
+  ensureFont(font);
+});
+
+// sketch pad
+const pad = document.getElementById('pad');
+const pctx = pad.getContext('2d');
+const padHint = document.getElementById('padhint');
+const brush = document.getElementById('brush');
+const errDraw = document.getElementById('err-draw');
+const strokes = [];
+let current = null, padW = 0, padH = 0;
+
+function sizePad() {
+  const r = pad.getBoundingClientRect();
+  if (!r.width) return;
+  padW = r.width; padH = r.height;
+  pad.width = Math.round(r.width * DPR); pad.height = Math.round(r.height * DPR);
+  redrawPad();
+}
+new ResizeObserver(sizePad).observe(pad);
+
+function paintStrokes(c, scale, color) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = color; c.fillStyle = color;
+  for (const s of strokes) {
+    const p = s.pts;
+    c.lineWidth = s.w * scale;
+    if (p.length === 1) {
+      c.beginPath(); c.arc(p[0][0] * scale, p[0][1] * scale, s.w * scale / 2, 0, Math.PI * 2); c.fill();
+      continue;
+    }
+    c.beginPath(); c.moveTo(p[0][0] * scale, p[0][1] * scale);
+    for (let i = 1; i < p.length - 1; i++) {
+      c.quadraticCurveTo(p[i][0] * scale, p[i][1] * scale,
+        (p[i][0] + p[i + 1][0]) / 2 * scale, (p[i][1] + p[i + 1][1]) / 2 * scale);
+    }
+    const lp = p[p.length - 1];
+    c.lineTo(lp[0] * scale, lp[1] * scale);
+    c.stroke();
+  }
+}
+function redrawPad() {
+  pctx.setTransform(1, 0, 0, 1, 0, 0);
+  pctx.clearRect(0, 0, pad.width, pad.height);
+  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#15171c';
+  paintStrokes(pctx, DPR, ink);
+  padHint.style.display = strokes.length ? 'none' : '';
+}
+const padPos = e => { const r = pad.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+pad.addEventListener('pointerdown', e => {
+  pad.setPointerCapture(e.pointerId);
+  current = { w: +brush.value, pts: [padPos(e)] };
+  strokes.push(current);
+  errDraw.textContent = '';
+  redrawPad();
+});
+pad.addEventListener('pointermove', e => {
+  if (!current) return;
+  const p = padPos(e), l = current.pts[current.pts.length - 1];
+  if (Math.hypot(p[0] - l[0], p[1] - l[1]) > 2) { current.pts.push(p); redrawPad(); }
+});
+['pointerup', 'pointercancel'].forEach(t => pad.addEventListener(t, () => { current = null; }));
+pad.addEventListener('keydown', e => { if (e.key === 'Enter') drop(); });
+document.getElementById('undo').addEventListener('click', () => { strokes.pop(); redrawPad(); });
+document.getElementById('clearPad').addEventListener('click', () => { strokes.length = 0; redrawPad(); });
+darkMQ.addEventListener && darkMQ.addEventListener('change', redrawPad);
+
+function drawingToShapes() {
+  const scale = Math.max(1, Math.min(1.6, (W * 0.85) / padW));
+  const off = document.createElement('canvas');
+  off.width = Math.ceil(padW * scale); off.height = Math.ceil(padH * scale);
+  const c = off.getContext('2d', { willReadFrequently: true });
+  paintStrokes(c, scale, '#000');
+  return extractShapes(off, 2);
+}
+
+/* ---------- sculpt editor ---------- */
+const sculptCv = document.getElementById('sculpt');
+const sculptHint = document.getElementById('sculpthint');
+const errSculpt = document.getElementById('err-sculpt');
+const sculptCfg = { tool: 'pull', radius: 0.45, sym: true };
+let SC = null;
+
+const currentHue = () => colorMode === 'mix' ? HUES[hueCursor % HUES.length] : colorMode;
+
+function baseGeometry(kind) {
+  let g;
+  if (kind === 'donut') {
+    g = new THREE.TorusGeometry(0.8, 0.42, 56, 120);
+  } else if (kind === 'pillow') {
+    g = new THREE.BoxGeometry(1.7, 1.7, 1.7, 30, 30, 30);
+    const p = g.attributes.position, v = new THREE.Vector3(), sph = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      sph.copy(v).normalize().multiplyScalar(1.15);
+      v.lerp(sph, 0.45);
+      v.z *= 0.62;
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+  } else {
+    g = new THREE.IcosahedronGeometry(1, 30);
+  }
+  g.deleteAttribute('uv');
+  g.deleteAttribute('normal');
+  g = mergeVertices(g, 1e-4);
+  g.computeVertexNormals();
+  return g;
+}
+
+// vertex neighbours in compressed rows, for the smooth brush
+function buildAdjacency(geo) {
+  const ix = geo.index.array, nv = geo.attributes.position.count;
+  const start = new Uint32Array(nv + 1);
+  for (let t = 0; t < ix.length; t++) start[ix[t] + 1] += 2;
+  for (let i = 0; i < nv; i++) start[i + 1] += start[i];
+  const fill = start.slice(0, nv), nb = new Uint32Array(start[nv]);
+  for (let t = 0; t < ix.length; t += 3) {
+    const a = ix[t], b = ix[t + 1], c = ix[t + 2];
+    nb[fill[a]++] = b; nb[fill[a]++] = c;
+    nb[fill[b]++] = a; nb[fill[b]++] = c;
+    nb[fill[c]++] = a; nb[fill[c]++] = b;
+  }
+  return { start, nb };
+}
+
+function setSculptGeometry(geo) {
+  geo.attributes.position.setUsage(THREE.DynamicDrawUsage);
+  geo.computeBoundingSphere();
+  SC.mesh.geometry = geo;
+  SC.adj = buildAdjacency(geo);
+  renderSculpt();
+}
+
+function initSculpt() {
+  if (SC) return true;
+  let r;
+  try {
+    r = new THREE.WebGLRenderer({ canvas: sculptCv, antialias: true });
+  } catch (_) {
+    errSculpt.textContent = 'This browser could not open a second 3D view for sculpting.';
+    return false;
+  }
+  r.outputColorSpace = THREE.SRGBColorSpace;
+  r.toneMapping = THREE.ACESFilmicToneMapping;
+  r.toneMappingExposure = 1.05;
+  r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  const sc = new THREE.Scene();
+  sc.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+  sc.environmentIntensity = 0.9;
+  const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 50);
+  cam.position.set(0, 0, 6.2);
+  const k = new THREE.DirectionalLight(0xffffff, 2.2);
+  k.position.set(-2.5, 3.5, 4);
+  sc.add(k, new THREE.HemisphereLight(0xffffff, 0x7d8696, 0.7));
+  // tiled backdrop so the jelly has something to refract
+  const tex = tileTexture();
+  tex.repeat.set(16, 10);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(16, 10), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
+  back.position.z = -2.6;
+  sc.add(back);
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), makeMaterial(currentHue(), 1));
+  sc.add(mesh);
+  SC = { r, sc, cam, mesh, back, adj: null, undo: [], queued: false, normalsDirty: false, stroke: null };
+  setSculptGeometry(baseGeometry('sphere'));
+  styleSculpt();
+  return true;
+}
+
+function styleSculpt() {
+  styleMaterial(SC.mesh.material, currentHue(), 1);
+  SC.back.material.color.setHex(dark ? 0x232937 : 0xe6eaf0);
+  renderSculpt();
+}
+darkMQ.addEventListener && darkMQ.addEventListener('change', () => { if (SC) styleSculpt(); });
+
+function renderSculpt() {
+  if (!SC || SC.queued) return;
+  SC.queued = true;
+  requestAnimationFrame(() => {
+    SC.queued = false;
+    if (SC.normalsDirty) {
+      SC.mesh.geometry.computeVertexNormals();
+      SC.mesh.geometry.computeBoundingSphere();
+      SC.normalsDirty = false;
+    }
+    SC.r.render(SC.sc, SC.cam);
+  });
+}
+function resizeSculpt() {
+  if (!SC) return;
+  const rc = sculptCv.getBoundingClientRect();
+  if (!rc.width || !rc.height) return;
+  SC.r.setSize(rc.width, rc.height, false);
+  SC.cam.aspect = rc.width / rc.height;
+  SC.cam.updateProjectionMatrix();
+  renderSculpt();
+}
+new ResizeObserver(resizeSculpt).observe(sculptCv);
+
+function markSculpt() {
+  SC.mesh.geometry.attributes.position.needsUpdate = true;
+  SC.normalsDirty = true;
+  renderSculpt();
+}
+
+function pushUndo(entry) {
+  SC.undo.push(entry);
+  if (SC.undo.length > 20) {
+    const old = SC.undo.shift();
+    if (old.geo && old.geo !== SC.mesh.geometry) old.geo.dispose();
+  }
+}
+
+const sRay = new THREE.Raycaster(), sNdc = new THREE.Vector2();
+const sV = new THREE.Vector3(), sQ = new THREE.Quaternion();
+function sculptRay(e) {
+  const rc = sculptCv.getBoundingClientRect();
+  sNdc.set((e.clientX - rc.left) / rc.width * 2 - 1, -(e.clientY - rc.top) / rc.height * 2 + 1);
+  sRay.setFromCamera(sNdc, SC.cam);
+  return sRay;
+}
+function sculptHit(e) {
+  const h = sculptRay(e).intersectObject(SC.mesh, false);
+  return h.length ? h[0] : null;
+}
+
+const MAX_R = 2.1;   // keep the sculpt inside the viewport
+function sculptBrush(lp, kind) {
+  const geo = SC.mesh.geometry, pos = geo.attributes.position.array, nrm = geo.attributes.normal.array;
+  const R = sculptCfg.radius, R2 = R * R, nv = pos.length / 3;
+  const centers = [lp.x];
+  if (sculptCfg.sym && Math.abs(lp.x) > R * 0.2) centers.push(-lp.x);
+  const amt = kind === 'inflate' ? 0.03 : kind === 'dent' ? -0.03 : 0;
+  const { start, nb } = SC.adj;
+  for (const cx of centers) {
+    for (let v = 0, o = 0; v < nv; v++, o += 3) {
+      const dx = pos[o] - cx, dy = pos[o + 1] - lp.y, dz = pos[o + 2] - lp.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= R2) continue;
+      const w = (1 - d2 / R2) ** 2;
+      if (kind === 'smooth') {
+        let ax = 0, ay = 0, az = 0;
+        const s0 = start[v], s1 = start[v + 1], n = (s1 - s0) || 1;
+        for (let k = s0; k < s1; k++) { const q = nb[k] * 3; ax += pos[q]; ay += pos[q + 1]; az += pos[q + 2]; }
+        const f = 0.5 * w;
+        pos[o] += (ax / n - pos[o]) * f;
+        pos[o + 1] += (ay / n - pos[o + 1]) * f;
+        pos[o + 2] += (az / n - pos[o + 2]) * f;
+      } else {
+        pos[o] += nrm[o] * amt * w;
+        pos[o + 1] += nrm[o + 1] * amt * w;
+        pos[o + 2] += nrm[o + 2] * amt * w;
+      }
+    }
+  }
+  for (let o = 0; o < pos.length; o += 3) {
+    const l = Math.hypot(pos[o], pos[o + 1], pos[o + 2]);
+    if (l > MAX_R) { const f = MAX_R / l; pos[o] *= f; pos[o + 1] *= f; pos[o + 2] *= f; }
+  }
+  markSculpt();
+}
+
+sculptCv.addEventListener('pointerdown', e => {
+  if (!SC || e.button > 0) return;
+  sculptCv.setPointerCapture(e.pointerId);
+  errSculpt.textContent = '';
+  sculptHint.hidden = true;
+  const h = sculptHit(e);
+  if (!h) {
+    SC.stroke = { kind: 'rotate', id: e.pointerId, x: e.clientX, y: e.clientY };
+    sculptCv.classList.add('rotating');
+    return;
+  }
+  const pos = SC.mesh.geometry.attributes.position.array;
+  pushUndo({ pos: pos.slice() });
+  const lp = SC.mesh.worldToLocal(h.point.clone());
+  const st = { kind: sculptCfg.tool, id: e.pointerId };
+  if (st.kind === 'pull') {
+    const nv = pos.length / 3, R = sculptCfg.radius, R2 = R * R;
+    st.start = pos.slice();
+    st.wA = new Float32Array(nv);
+    st.wB = new Float32Array(nv);
+    st.both = sculptCfg.sym && Math.abs(lp.x) > R * 0.2;
+    st.center = sculptCfg.sym && !st.both;   // grabbed on the mirror plane: stay on it
+    for (let v = 0, o = 0; v < nv; v++, o += 3) {
+      const y = pos[o + 1] - lp.y, z = pos[o + 2] - lp.z;
+      let x = pos[o] - lp.x, d2 = x * x + y * y + z * z;
+      if (d2 < R2) st.wA[v] = (1 - d2 / R2) ** 2;
+      if (st.both) {
+        x = pos[o] + lp.x; d2 = x * x + y * y + z * z;
+        if (d2 < R2) st.wB[v] = (1 - d2 / R2) ** 2;
+      }
+    }
+    st.plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), h.point);
+    st.origin = h.point.clone();
+  } else {
+    sculptBrush(lp, st.kind);
+  }
+  SC.stroke = st;
+});
+sculptCv.addEventListener('pointermove', e => {
+  const st = SC && SC.stroke;
+  if (!st || st.id !== e.pointerId) return;
+  if (st.kind === 'rotate') {
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    st.x = e.clientX; st.y = e.clientY;
+    sQ.setFromAxisAngle(sV.set(0, 1, 0), dx * 0.01); SC.mesh.quaternion.premultiply(sQ);
+    sQ.setFromAxisAngle(sV.set(1, 0, 0), dy * 0.01); SC.mesh.quaternion.premultiply(sQ);
+    renderSculpt();
+    return;
+  }
+  if (st.kind === 'pull') {
+    const hit = sculptRay(e).ray.intersectPlane(st.plane, sV);
+    if (!hit) return;
+    const d = hit.clone().sub(st.origin).applyQuaternion(sQ.copy(SC.mesh.quaternion).invert());
+    const len = d.length();
+    if (len > 1.6) d.multiplyScalar(1.6 / len);
+    if (st.center) d.x = 0;
+    const pos = SC.mesh.geometry.attributes.position.array, s0 = st.start, wA = st.wA, wB = st.wB;
+    for (let v = 0, o = 0; v < wA.length; v++, o += 3) {
+      const a = wA[v], b = wB[v];
+      if (a === 0 && b === 0) continue;
+      const t = Math.min(1, a + b);
+      pos[o] = s0[o] + (a - b) * d.x;
+      pos[o + 1] = s0[o + 1] + t * d.y;
+      pos[o + 2] = s0[o + 2] + t * d.z;
+    }
+    markSculpt();
+    return;
+  }
+  const h = sculptHit(e);
+  if (h) sculptBrush(SC.mesh.worldToLocal(h.point.clone()), st.kind);
+});
+const endSculpt = e => {
+  if (!SC || !SC.stroke || SC.stroke.id !== e.pointerId) return;
+  SC.stroke = null;
+  sculptCv.classList.remove('rotating');
+};
+sculptCv.addEventListener('pointerup', endSculpt);
+sculptCv.addEventListener('pointercancel', endSculpt);
+
+radioGroup(document.getElementById('stool'), v => { sculptCfg.tool = v; });
+const mirrorBtn = document.getElementById('sMirror');
+mirrorBtn.addEventListener('click', () => {
+  sculptCfg.sym = !sculptCfg.sym;
+  mirrorBtn.setAttribute('aria-pressed', String(sculptCfg.sym));
+});
+document.getElementById('sBrush').addEventListener('input', e => { sculptCfg.radius = +e.target.value; });
+document.getElementById('sUndo').addEventListener('click', () => {
+  if (!SC) return;
+  const u = SC.undo.pop();
+  if (!u) { errSculpt.textContent = 'Nothing to undo yet.'; return; }
+  errSculpt.textContent = '';
+  if (u.geo) {
+    const cur = SC.mesh.geometry;
+    setSculptGeometry(u.geo);
+    cur.dispose();
+  } else {
+    const pos = SC.mesh.geometry.attributes.position.array;
+    if (u.pos.length === pos.length) { pos.set(u.pos); markSculpt(); }
+  }
+});
+document.querySelectorAll('[data-base]').forEach(b => b.addEventListener('click', () => {
+  if (!initSculpt()) return;
+  pushUndo({ geo: SC.mesh.geometry });
+  SC.mesh.quaternion.identity();
+  setSculptGeometry(baseGeometry(b.dataset.base));
+  errSculpt.textContent = '';
+}));
+
+// Silhouette of the sculpt as seen in the editor becomes the soft body; the full 3D mesh rides on it.
+function sculptToShapes() {
+  if (!SC) return [];
+  const geo = SC.mesh.geometry, src = geo.attributes.position.array, ix = geo.index.array;
+  const q = SC.mesh.quaternion, v = new THREE.Vector3();
+  const P = new Float32Array(src.length);
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let o = 0; o < src.length; o += 3) {
+    v.set(src[o], src[o + 1], src[o + 2]).applyQuaternion(q);
+    P[o] = v.x; P[o + 1] = v.y; P[o + 2] = v.z;
+    if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+    if (v.y < y0) y0 = v.y; if (v.y > y1) y1 = v.y;
+    if (v.z < z0) z0 = v.z; if (v.z > z1) z1 = v.z;
+  }
+  const R = clamp(Math.min(W, H) * 0.1, 55, 105), padPx = 8, zc = (z0 + z1) / 2;
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil((x1 - x0) * R + padPx * 2);
+  cv.height = Math.ceil((y1 - y0) * R + padPx * 2);
+  const U = new Float32Array(src.length);
+  for (let o = 0; o < src.length; o += 3) {
+    U[o] = (P[o] - x0) * R + padPx;
+    U[o + 1] = (y1 - P[o + 1]) * R + padPx;
+    U[o + 2] = (P[o + 2] - zc) * R;
+  }
+  const c = cv.getContext('2d', { willReadFrequently: true });
+  // every triangle with the same winding, so one nonzero fill gives the union
+  c.beginPath();
+  for (let t = 0; t < ix.length; t += 3) {
+    const a = ix[t] * 3, b = ix[t + 1] * 3, d = ix[t + 2] * 3;
+    const cr = (U[b] - U[a]) * (U[d + 1] - U[a + 1]) - (U[b + 1] - U[a + 1]) * (U[d] - U[a]);
+    c.moveTo(U[a], U[a + 1]);
+    if (cr >= 0) { c.lineTo(U[b], U[b + 1]); c.lineTo(U[d], U[d + 1]); }
+    else { c.lineTo(U[d], U[d + 1]); c.lineTo(U[b], U[b + 1]); }
+    c.closePath();
+  }
+  c.fillStyle = '#000';
+  c.fill('nonzero');
+  const shapes = extractShapes(cv, 2, 200, 100);
+  if (!shapes.length) return [];
+  shapes.sort((a, b) => outlineArea(b) - outlineArea(a));
+  const best = shapes[0];
+  best.mesh = { pos: U, index: Uint32Array.from(ix) };
+  return [best];
+}
+
+/* ---------- drop ---------- */
+const dropBtn = document.getElementById('drop');
+let dropping = false;
+async function drop() {
+  if (dropping) return;
+  if (mode === 'type') {
+    const t = textIn.value.trim();
+    if (!t) { errType.textContent = 'Type at least one character first.'; textIn.focus(); return; }
+    dropping = true; dropBtn.setAttribute('aria-busy', 'true');
+    const ok = await ensureFont(font);
+    dropping = false; dropBtn.removeAttribute('aria-busy');
+    errType.textContent = ok ? '' : `${font.label} did not load, so this uses the default rounded font.`;
+    const n = spawnShapes(textToShapes(t, font, splitWords));
+    if (!n) { errType.textContent = 'That text has no solid shapes to turn into jelly. Try letters or symbols.'; return; }
+    textIn.select();
+  } else if (mode === 'draw') {
+    if (!strokes.length) { errDraw.textContent = 'Sketch something on the pad first.'; return; }
+    const n = spawnShapes(drawingToShapes());
+    if (!n) { errDraw.textContent = 'That sketch is too small. Try a bigger shape or a thicker brush.'; return; }
+    strokes.length = 0; redrawPad();
+  } else {
+    if (!initSculpt()) return;
+    const sh = sculptToShapes();
+    if (!sh.length) { errSculpt.textContent = 'That sculpt is too thin to drop. Inflate it a little.'; return; }
+    spawnShapes(sh);
+    styleSculpt();   // preview takes the next colour in the mix
+  }
+}
+dropBtn.addEventListener('click', drop);
+
+/* ---------- editor window: top-mounted, draggable, closes to an icon ---------- */
+const launcher = document.getElementById('launcher');
+const dragbar = document.getElementById('dragbar');
+const grip = document.getElementById('grip');
+const LS_KEY = 'jellybox.ui.v1';
+const LAUNCH = 54;
+let ui = {};
+try { ui = JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch (_) { ui = {}; }
+const saveUI = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(ui)); } catch (_) {} };
+
+function placeEl(el, x, y) {
+  const w = el.offsetWidth, h = el.offsetHeight;
+  x = clamp(x, 8, Math.max(8, W - w - 8));
+  y = clamp(y, 8, Math.max(8, H - Math.min(h, 64) - 8));   // the header always stays reachable
+  el.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+  return [x, y];
+}
+function defaultEditorPos() {
+  const w = editor.offsetWidth;
+  const x = (W - w) / 2;
+  let y = 14;
+  for (const el of [document.querySelector('.tools'), document.querySelector('.brand')]) {
+    const b = el.getBoundingClientRect();
+    if (b.width && x < b.right && x + w > b.left && y < b.bottom) y = Math.max(y, b.bottom + 10);
+  }
+  return [x, y];
+}
+function keepEditorInView() {
+  if (!editor.hidden && ui.e) ui.e = placeEl(editor, ui.e[0], ui.e[1]);
+}
+function closeEditor(focus = true, iconPos = null) {
+  const w = editor.offsetWidth || 560;
+  const [ex, ey] = ui.e || defaultEditorPos();
+  editor.hidden = true;
+  launcher.hidden = false;
+  // the icon lands where the close button was, unless it already has a home
+  const p = iconPos || [ex + w - LAUNCH - 4, ey];
+  ui.l = placeEl(launcher, p[0], p[1]);
+  ui.open = false; saveUI();
+  if (focus) launcher.focus();
+}
+function openEditor() {
+  editor.hidden = false;
+  launcher.hidden = true;
+  const w = editor.offsetWidth;
+  const [lx, ly] = ui.l || [W - LAUNCH - 14, 14];
+  ui.e = placeEl(editor, lx + LAUNCH + 4 - w, ly);
+  ui.open = true; saveUI();
+  const t = tabs.find(t => t.dataset.mode === mode);
+  if (t) t.focus();
+  if (mode === 'draw') sizePad();
+  if (mode === 'sculpt') resizeSculpt();
+}
+
+function makeDraggable(handle, el, key, canStart) {
+  let id = null, sx = 0, sy = 0, ox = 0, oy = 0;
+  handle.addEventListener('pointerdown', e => {
+    if (e.button > 0 || (canStart && !canStart(e))) return;
+    id = e.pointerId; sx = e.clientX; sy = e.clientY;
+    [ox, oy] = ui[key] || [0, 0];
+    el.dataset.moved = '';
+    handle.setPointerCapture(id);
+  });
+  handle.addEventListener('pointermove', e => {
+    if (e.pointerId !== id) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!el.dataset.moved && Math.hypot(dx, dy) < 4) return;
+    el.dataset.moved = '1';
+    el.classList.add('dragging');
+    ui[key] = placeEl(el, ox + dx, oy + dy);
+  });
+  const end = e => {
+    if (e.pointerId !== id) return;
+    id = null;
+    el.classList.remove('dragging');
+    if (el.dataset.moved) saveUI();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
+makeDraggable(dragbar, editor, 'e', e => !e.target.closest('[role=tab], #closeEditor'));
+makeDraggable(launcher, launcher, 'l');
+launcher.addEventListener('click', () => {
+  if (launcher.dataset.moved) { launcher.dataset.moved = ''; return; }   // that was a drag
+  openEditor();
+});
+document.getElementById('closeEditor').addEventListener('click', () => closeEditor());
+grip.addEventListener('keydown', e => {
+  const step = e.shiftKey ? 60 : 20;
+  const m = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (!m) return;
+  e.preventDefault();
+  ui.e = placeEl(editor, ui.e[0] + m[0], ui.e[1] + m[1]);
+  saveUI();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !editor.hidden) closeEditor();
+});
+window.addEventListener('resize', () => {
+  if (!editor.hidden) keepEditorInView();
+  else if (ui.l) ui.l = placeEl(launcher, ui.l[0], ui.l[1]);
+});
+
+editor.classList.add('placed');
+ui.e = placeEl(editor, ...(ui.e || defaultEditorPos()));
+if (ui.open === false) closeEditor(false, ui.l);
+
+/* ---------- start ---------- */
+const start = () => {
+  spawnShapes(textToShapes('jelly', FONTS[0], false));
+  requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
+};
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
+
+window.__jelly = { bodies, spawnShapes, textToShapes, FONTS, sculptToShapes, getSC: () => SC };
+
+})();
+</script>
+</body>
+</html>
